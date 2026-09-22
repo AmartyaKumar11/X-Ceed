@@ -1,0 +1,7 @@
+FROM python:3.11-slim
+WORKDIR /app
+COPY services/python/requirements-ai-support.txt ./requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+COPY services/python/ ./
+EXPOSE 8001
+CMD ["uvicorn", "xceed_ai_support:app", "--host", "0.0.0.0", "--port", "8001"]

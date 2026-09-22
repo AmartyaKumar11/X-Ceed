@@ -18,6 +18,7 @@ import { clientAuth } from '@/lib/auth';
 import CreateJobDialog from '@/components/CreateJobDialog';
 import ApplicationStatusCards from '@/components/ApplicationStatusCards';
 import { AnalyticsProvider } from '@/contexts/AnalyticsContext';
+import { gql, RECRUITER_DASHBOARD_QUERY } from '@/lib/graphqlClient';
 
 export default function RecruiterDashboardPage() {
   const router = useRouter();  const [jobs, setJobs] = useState([]);
@@ -94,11 +95,34 @@ export default function RecruiterDashboardPage() {
     }
   };
   const fetchJobs = async () => {
-    try {      const token = localStorage.getItem('token');
+    try {
+      const token = localStorage.getItem('token');
       if (!token) {
         setJobs([]);
         calculateStats([]);
         return;
+      }
+
+      // Prefer single GraphQL round-trip; fall back to REST
+      try {
+        const data = await gql(RECRUITER_DASHBOARD_QUERY);
+        const dash = data?.recruiterDashboard;
+        if (dash) {
+          const mapped = (dash.jobs || []).map((j) => ({
+            ...j,
+            _id: j.id,
+            applicationsCount: j.applicationCount ?? 0,
+          }));
+          setJobs(mapped);
+          setStats({
+            activeJobs: dash.stats?.activeJobs ?? mapped.filter((j) => j.status === 'active').length,
+            totalApplications: dash.stats?.totalApplications ?? 0,
+            interviews: dash.stats?.shortlistedCount ?? 0,
+          });
+          return;
+        }
+      } catch (gqlErr) {
+        console.warn('GraphQL dashboard fallback to REST:', gqlErr.message);
       }
 
       const response = await fetch('/api/jobs', {
@@ -107,8 +131,10 @@ export default function RecruiterDashboardPage() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         }
-      });      if (response.ok) {
-        const data = await response.json();        if (data && data.success) {
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (data && data.success) {
           setJobs(data.data || []);
           calculateStats(data.data || []);
         } else {
@@ -116,7 +142,6 @@ export default function RecruiterDashboardPage() {
           calculateStats([]);
         }
       } else if (response.status === 401) {
-        // Token expired or invalid, redirect to login
         localStorage.removeItem('token');
         clientAuth.logout();
         router.push('/auth');
@@ -124,12 +149,14 @@ export default function RecruiterDashboardPage() {
       } else {
         setJobs([]);
         calculateStats([]);
-      }} catch (error) {
+      }
+    } catch (error) {
       setJobs([]);
       calculateStats([]);
     } finally {
       setLoading(false);
-    }  };
+    }
+  };
 
   const fetchUpcomingInterviews = async () => {
     try {

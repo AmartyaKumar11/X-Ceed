@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, Suspense} from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { 
   Target,
@@ -34,7 +34,7 @@ import { Separator } from "@/components/ui/separator";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import EnhancedVideoSelector from "@/components/prep-plan/EnhancedVideoSelector";
 
-export default function ResumeMatchPage() {
+function ResumeMatchPageInner() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const chatEndRef = useRef(null);
@@ -213,12 +213,68 @@ export default function ResumeMatchPage() {
           const jobResponseData = await jobResponse.json();
           // API returns { job: jobObject }, so extract the job
           jobData = jobResponseData.job || jobResponseData;
+          
+          // If description is empty but jobDescriptionFile exists, try to load it
+          if (!jobData.description && jobData.jobDescriptionFile) {
+            try {
+              console.log('📄 Loading job description from file:', jobData.jobDescriptionFile);
+              const filePath = jobData.jobDescriptionFile.startsWith('/') 
+                ? jobData.jobDescriptionFile 
+                : `/${jobData.jobDescriptionFile}`;
+              
+              // Try to extract PDF content using the extract-pdf API
+              try {
+                // Ensure filePath is relative to public folder
+                const cleanPath = filePath.startsWith('/') ? filePath.substring(1) : filePath;
+                
+                const extractResponse = await fetch('/api/extract-pdf', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ filePath: cleanPath })
+                });
+                
+                if (extractResponse.ok) {
+                  const extractData = await extractResponse.json();
+                  if (extractData.success && extractData.data?.text) {
+                    jobData.description = extractData.data.text;
+                    console.log('✅ Loaded job description from PDF file:', extractData.data.text.substring(0, 100) + '...');
+                  } else {
+                    console.warn('⚠️ PDF extraction succeeded but no text found');
+                  }
+                } else {
+                  const errorData = await extractResponse.json().catch(() => ({}));
+                  console.warn('⚠️ PDF extraction API failed:', extractResponse.status, errorData);
+                  
+                  // Fallback: try direct file read if it's a text file
+                  try {
+                    const directResponse = await fetch(filePath);
+                    if (directResponse.ok) {
+                      const contentType = directResponse.headers.get('content-type');
+                      if (contentType?.includes('text')) {
+                        const text = await directResponse.text();
+                        jobData.description = text;
+                        console.log('✅ Loaded job description directly from text file');
+                      }
+                    }
+                  } catch (e) {
+                    console.warn('⚠️ Could not load job description file:', e);
+                  }
+                }
+              } catch (extractError) {
+                console.warn('⚠️ PDF extraction failed:', extractError);
+              }
+            } catch (error) {
+              console.warn('⚠️ Error loading job description file:', error);
+            }
+          }
+          
           setJob(jobData);
           console.log('✅ Job data loaded:', jobData.title);
           console.log('📋 Job details:', {
             title: jobData.title,
             description: jobData.description ? `${jobData.description.substring(0, 100)}...` : 'No description',
-            requirements: jobData.requirements ? `${jobData.requirements.length} requirements` : 'No requirements'
+            requirements: jobData.requirements ? `${jobData.requirements.length} requirements` : 'No requirements',
+            hasDescriptionFile: !!jobData.jobDescriptionFile
           });
         }
       }
@@ -1634,3 +1690,12 @@ The prep plan is ready and waiting for you! 🚀`,
     </div>
   );
 }
+
+export default function ResumeMatchPage() {
+  return (
+    <Suspense fallback={<div className="flex min-h-screen items-center justify-center">Loading...</div>}>
+      <ResumeMatchPageInner />
+    </Suspense>
+  );
+}
+

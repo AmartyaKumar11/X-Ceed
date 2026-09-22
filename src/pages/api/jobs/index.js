@@ -50,7 +50,8 @@ export default async function handler(req, res) {  try {
         applicationStart,
         applicationEnd,
         priority,
-        status = 'active'
+        status = 'active',
+        evaluationWeights,
       } = req.body;
 
       // Validate required fields
@@ -101,6 +102,13 @@ export default async function handler(req, res) {  try {
         applicationEnd: endDate,
         priority: priority || 'medium',
         status,
+        evaluationWeights: evaluationWeights || {
+          skills: 0.35,
+          experience: 0.25,
+          education: 0.15,
+          projects: 0.15,
+          communication: 0.1,
+        },
         applicationsCount: 0,
         viewsCount: 0,
         createdAt: new Date(),

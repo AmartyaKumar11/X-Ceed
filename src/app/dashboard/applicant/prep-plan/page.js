@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense} from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { 
   BookOpen, 
@@ -37,7 +37,7 @@ import PayoutCalculator from "@/components/gamification/PayoutCalculator";
 import SkillFilterDebug from "@/components/debug/SkillFilterDebug";
 import { skillFilter } from "@/lib/skillFilter";
 
-export default function PrepPlanPage() {
+function PrepPlanPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -2056,3 +2056,12 @@ export default function PrepPlanPage() {
     </div>
   );
 }
+
+export default function PrepPlanPage() {
+  return (
+    <Suspense fallback={<div className="flex min-h-screen items-center justify-center">Loading...</div>}>
+      <PrepPlanPageInner />
+    </Suspense>
+  );
+}
+

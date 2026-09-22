@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense} from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { 
   Brain, Clock, CheckCircle, XCircle, ArrowLeft, ArrowRight, 
@@ -8,7 +8,7 @@ import {
   RotateCcw, Send
 } from 'lucide-react';
 
-export default function QuizPage() {
+function QuizPageInner() {
   const searchParams = useSearchParams();
   const router = useRouter();
   
@@ -555,3 +555,12 @@ export default function QuizPage() {
     </div>
   );
 }
+
+export default function QuizPage() {
+  return (
+    <Suspense fallback={<div className="flex min-h-screen items-center justify-center">Loading...</div>}>
+      <QuizPageInner />
+    </Suspense>
+  );
+}
+

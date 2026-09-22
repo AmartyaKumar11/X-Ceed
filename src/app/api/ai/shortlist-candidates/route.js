@@ -42,7 +42,7 @@ export async function POST(request) {
       }, { status: 400 });
     }
 
-    const { jobId, jobTitle, jobDescription, jobRequirements, candidates } = body;
+    const { jobId, jobTitle, jobDescription, jobRequirements, candidates, weights } = body;
 
     console.log('📊 Shortlisting request:', {
       jobId,
@@ -97,7 +97,7 @@ export async function POST(request) {
       resumePath: c.resumePath
     })));
     
-    const preFilteredCandidates = await fastPreFilter(candidatesWithResumeText, jobRequirements, jobTitle);
+    const preFilteredCandidates = await fastPreFilter(candidatesWithResumeText, jobRequirements, jobTitle, weights);
     console.log(`📋 Pre-filtered: ${preFilteredCandidates.length}/${candidatesWithResumeText.length} candidates`);
     console.log('🎯 Pre-filtered candidates:', preFilteredCandidates.map(c => ({
       name: c.name,
@@ -172,11 +172,11 @@ export async function POST(request) {
 }
 
 // Step 1: Fast JavaScript pre-filtering
-async function fastPreFilter(candidates, jobRequirements, jobTitle) {
+async function fastPreFilter(candidates, jobRequirements, jobTitle, weights) {
   const filtered = [];
   
   for (const candidate of candidates) {
-    const score = calculateQuickScore(candidate, jobRequirements, jobTitle);
+    const score = calculateQuickScore(candidate, jobRequirements, jobTitle, weights);
     
     // Always include candidates if we have basic info (lowered threshold for demo)
     // In production, you'd want stricter filtering based on actual resume content
@@ -195,15 +195,16 @@ async function fastPreFilter(candidates, jobRequirements, jobTitle) {
 }
 
 // Quick scoring algorithm
-function calculateQuickScore(candidate, jobRequirements, jobTitle) {
+function calculateQuickScore(candidate, jobRequirements, jobTitle, weights) {
   const resumeText = candidate.resumeText?.toLowerCase() || '';
   const skills = candidate.skills || [];
   const candidateName = candidate.name || '';
+  const w = weights || { skills: 0.35, experience: 0.25, education: 0.15, projects: 0.15, communication: 0.1 };
   
   // Base score for having basic candidate info
   let baseScore = candidateName ? 20 : 0;
   
-  // Skills matching (50% weight)
+  // Skills matching
   let skillsScore = 0;
   let matchedSkills = 0;
   
@@ -224,16 +225,17 @@ function calculateQuickScore(candidate, jobRequirements, jobTitle) {
     skillsScore = skills.length > 0 ? 50 : 20;
   }
   
-  // Experience level (30% weight)
+  // Experience level
   const experienceScore = extractExperienceScore(resumeText, jobTitle);
   
-  // Education/Keywords (20% weight)
+  // Education/Keywords (maps remaining weight dims)
   const keywordScore = calculateKeywordScore(resumeText, jobTitle, jobRequirements);
+  const restWeight = (Number(w.education) || 0) + (Number(w.projects) || 0) + (Number(w.communication) || 0);
   
   const total = Math.max(baseScore, Math.round(
-    (skillsScore * 0.5) + 
-    (experienceScore * 0.3) + 
-    (keywordScore * 0.2)
+    (skillsScore * (Number(w.skills) || 0.35)) + 
+    (experienceScore * (Number(w.experience) || 0.25)) + 
+    (keywordScore * (restWeight || 0.4))
   ));
   
   return {

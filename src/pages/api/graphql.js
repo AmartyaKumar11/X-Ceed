@@ -129,6 +129,9 @@ type Job {
   requirements: [String!]!
   evaluationWeights: EvaluationWeights
   applicationCount: Int!
+  status: String
+  department: String
+  location: String
   createdAt: String!
 }
 
@@ -239,6 +242,9 @@ function mapJob(doc, applicationCount = 0) {
     requirements,
     evaluationWeights: mapWeights(doc.evaluationWeights),
     applicationCount,
+    status: doc.status || 'active',
+    department: doc.department || '',
+    location: doc.location || '',
     createdAt: doc.createdAt ? new Date(doc.createdAt).toISOString() : '',
   };
 }

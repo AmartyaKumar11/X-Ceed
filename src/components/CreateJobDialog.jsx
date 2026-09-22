@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { X, Plus, Calendar, MapPin, DollarSign, Users, Clock, Briefcase, Upload, FileText } from 'lucide-react';
+import { X, Plus, Calendar, MapPin, DollarSign, Users, Clock, Briefcase, Upload, FileText, SlidersHorizontal } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,13 +9,21 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 //import { SimpleDatePicker } from '@/components/ui/simple-date-picker';
 import { FileUpload } from '@/components/ui/file-upload';
-import { apiClient } from '@/lib/api';
+import { DEFAULT_WEIGHTS, normalizeWeights } from '@/lib/normalizeWeights';
 
 const STEPS = [
   { id: 1, title: 'Basic Information', icon: Briefcase },
   { id: 2, title: 'Job Details', icon: MapPin },
   { id: 3, title: 'Compensation', icon: DollarSign },
-  { id: 4, title: 'Timeline & Openings', icon: Calendar }
+  { id: 4, title: 'Timeline & Weights', icon: Calendar }
+];
+
+const WEIGHT_KEYS = [
+  { key: 'skills', label: 'Skills' },
+  { key: 'experience', label: 'Experience' },
+  { key: 'education', label: 'Education' },
+  { key: 'projects', label: 'Projects' },
+  { key: 'communication', label: 'Communication' },
 ];
 
 export default function CreateJobDialog({ isOpen, onClose, onJobCreated }) {  const [currentStep, setCurrentStep] = useState(1);
@@ -50,13 +58,22 @@ export default function CreateJobDialog({ isOpen, onClose, onJobCreated }) {  co
     endYear: '',
     jobDescriptionType: 'text', // 'text' or 'file'
     jobDescriptionText: '',
-    jobDescriptionFile: null
+    jobDescriptionFile: null,
+    evaluationWeights: { ...DEFAULT_WEIGHTS },
   });
 
   const handleInputChange = (field, value) => {
     setFormData(prev => ({
       ...prev,
       [field]: value
+    }));
+  };
+
+  const handleWeightChange = (key, raw) => {
+    const value = Math.max(0, Math.min(1, Number(raw) / 100));
+    setFormData((prev) => ({
+      ...prev,
+      evaluationWeights: normalizeWeights({ ...prev.evaluationWeights, [key]: value }),
     }));
   };
   // Helper function to get day options (1-31)
@@ -190,7 +207,8 @@ export default function CreateJobDialog({ isOpen, onClose, onJobCreated }) {  co
         numberOfOpenings: parseInt(formData.numberOfOpenings),
         applicationStart: applicationStart.toISOString(),
         applicationEnd: applicationEnd.toISOString(),
-        status: 'active'
+        status: 'active',
+        evaluationWeights: normalizeWeights(formData.evaluationWeights),
       };
 
       console.log('📝 Creating job with data:', jobData);
@@ -244,7 +262,8 @@ export default function CreateJobDialog({ isOpen, onClose, onJobCreated }) {  co
         endYear: '',
         jobDescriptionType: 'text',
         jobDescriptionText: '',
-        jobDescriptionFile: null
+        jobDescriptionFile: null,
+        evaluationWeights: { ...DEFAULT_WEIGHTS },
       });
       setCurrentStep(1);
       
@@ -665,6 +684,30 @@ export default function CreateJobDialog({ isOpen, onClose, onJobCreated }) {  co
                   </div>
                 )}
               </div>
+            </div>
+
+            <div className="space-y-3 border-t border-border pt-4">
+              <Label className="flex items-center gap-2">
+                <SlidersHorizontal className="h-4 w-4" />
+                Evaluation weights (auto-normalize to 1.0)
+              </Label>
+              {WEIGHT_KEYS.map(({ key, label }) => (
+                <div key={key} className="grid grid-cols-[7rem_1fr_3rem] items-center gap-2">
+                  <span className="text-sm text-muted-foreground">{label}</span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    step={1}
+                    value={Math.round((formData.evaluationWeights?.[key] ?? 0) * 100)}
+                    onChange={(e) => handleWeightChange(key, e.target.value)}
+                    className="w-full accent-primary"
+                  />
+                  <span className="text-xs text-right tabular-nums">
+                    {(formData.evaluationWeights?.[key] ?? 0).toFixed(2)}
+                  </span>
+                </div>
+              ))}
             </div>
           </div>
         );

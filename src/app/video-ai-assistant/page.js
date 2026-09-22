@@ -1,12 +1,12 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, Suspense} from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Send, Loader2, Download, Scissors, Camera, FolderPlus, Bot, Video, MessageSquare, FileText, Clock, Play, ExternalLink, Pause, Square, SkipForward, Trash, Brain } from 'lucide-react';
 import TypingAnimation from '@/components/TypingAnimation';
 import GoogleIntegration from '@/components/GoogleIntegration';
 
-export default function VideoAIAssistant() {
+function VideoAIAssistantInner() {
   const searchParams = useSearchParams();
   const [videoId, setVideoId] = useState('');
   const [videoTitle, setVideoTitle] = useState('');
@@ -1583,3 +1583,12 @@ const quickActions = [
     </div>
   );
 }
+
+export default function VideoAIAssistant() {
+  return (
+    <Suspense fallback={<div className="flex min-h-screen items-center justify-center">Loading...</div>}>
+      <VideoAIAssistantInner />
+    </Suspense>
+  );
+}
+

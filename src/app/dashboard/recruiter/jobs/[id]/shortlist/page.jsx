@@ -22,7 +22,9 @@ import {
   Eye,
   Star,
   AlertCircle,
-  Loader2
+  Loader2,
+  Copy,
+  Sparkles
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import {
@@ -42,12 +44,22 @@ import {
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import InterviewSchedulingDialog from "@/components/InterviewSchedulingDialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 export default function AIShortlistPage() {
   const params = useParams();
   const router = useRouter();
   const [job, setJob] = useState(null);
   const [candidates, setCandidates] = useState([]);
+  const [outreachOpen, setOutreachOpen] = useState(false);
+  const [outreachLoading, setOutreachLoading] = useState(false);
+  const [outreachEmail, setOutreachEmail] = useState('');
+  const [outreachMeta, setOutreachMeta] = useState(null);
   const [aiResults, setAiResults] = useState(null);
   const [loading, setLoading] = useState(true);
   const [analyzing, setAnalyzing] = useState(false);
@@ -63,6 +75,36 @@ export default function AIShortlistPage() {
   const [resumeViewerOpen, setResumeViewerOpen] = useState(false);
   const [resumeUrl, setResumeUrl] = useState('');
   const [loadingResume, setLoadingResume] = useState(false);
+
+  const handleDraftOutreach = async (candidate) => {
+    setOutreachOpen(true);
+    setOutreachLoading(true);
+    setOutreachEmail('');
+    setOutreachMeta(null);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch('/api/ai/generate-outreach', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          jobId: job?._id || job?.id || params.id,
+          candidateId: candidate.applicantId || candidate.userId || candidate.applicant?._id,
+          applicationId: candidate._id || candidate.id,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.message || 'Failed');
+      setOutreachEmail(json.data.email || '');
+      setOutreachMeta(json.data);
+    } catch (e) {
+      setOutreachEmail(`Could not generate outreach: ${e.message}`);
+    } finally {
+      setOutreachLoading(false);
+    }
+  };
 
   useEffect(() => {
     console.log('🚀 Shortlist page mounted with jobId:', params.id);
@@ -204,7 +246,8 @@ export default function AIShortlistPage() {
         jobTitle: jobData.title,
         jobDescription: jobData.description || `Job posting for ${jobData.title}`,
         jobRequirements: jobData.requirements || [],
-        candidates: candidatesForAI
+        candidates: candidatesForAI,
+        weights: jobData.evaluationWeights || undefined,
       };
 
       console.log('📋 Request body validation:', {
@@ -815,6 +858,16 @@ export default function AIShortlistPage() {
                       <div className="flex items-center justify-between pt-4 border-t">
                         <div className="flex items-center gap-2">
                           <Button
+                            onClick={() => handleDraftOutreach(candidate)}
+                            variant="outline"
+                            size="sm"
+                            className="flex items-center gap-2"
+                          >
+                            <Sparkles className="h-4 w-4" />
+                            AI Draft Outreach
+                          </Button>
+
+                          <Button
                             onClick={() => handleViewResume(candidate)}
                             disabled={loadingResume}
                             variant="outline"
@@ -983,6 +1036,39 @@ export default function AIShortlistPage() {
             </div>
           </div>
         )}
+
+        <Dialog open={outreachOpen} onOpenChange={setOutreachOpen}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle>
+                AI Draft Outreach
+                {outreachMeta?.candidateName ? ` — ${outreachMeta.candidateName}` : ''}
+              </DialogTitle>
+            </DialogHeader>
+            {outreachLoading ? (
+              <div className="flex items-center justify-center py-10">
+                <Loader2 className="h-6 w-6 animate-spin" />
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <textarea
+                  className="w-full h-64 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={outreachEmail}
+                  onChange={(e) => setOutreachEmail(e.target.value)}
+                />
+                <Button
+                  onClick={() => {
+                    navigator.clipboard.writeText(outreachEmail);
+                  }}
+                  className="w-full"
+                >
+                  <Copy className="h-4 w-4 mr-2" />
+                  Copy to Clipboard
+                </Button>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   );

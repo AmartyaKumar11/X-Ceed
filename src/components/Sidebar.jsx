@@ -13,7 +13,8 @@ import {
   Settings, 
   LogOut,
   GraduationCap,
-  Video
+  Video,
+  Target
 } from 'lucide-react';
 import ProfileSettingsDialog from './ProfileSettingsDialog';
 import NotificationPanel from './NotificationPanel';
@@ -30,6 +31,7 @@ export default function Sidebar({ role }) {
     { icon: <User size={18} />, label: 'Profile', href: '#', onClick: () => setIsProfileDialogOpen(true) },
     { icon: <Briefcase size={18} />, label: 'Jobs', href: '/dashboard/applicant/jobs' },
     { icon: <GraduationCap size={18} />, label: 'Prep Plans', href: '/dashboard/applicant/prep-plans' },
+    { icon: <Target size={18} />, label: 'Career Plan', href: '/dashboard/applicant/career-plan' },
     { icon: <Video size={18} />, label: 'Mock Interview', href: '/dashboard/applicant/mock-interview' },
     { icon: <FileText size={18} />, label: 'Applications', href: '#' },
     { icon: <MessageSquare size={18} />, label: 'Messages', href: '#' },

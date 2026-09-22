@@ -1,13 +1,13 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense} from 'react';
 import { useSearchParams } from 'next/navigation';
 import CandidateShortlist from '@/components/recruiter/CandidateShortlist';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, Users } from 'lucide-react';
 
-export default function ShortlistPage() {
+function ShortlistPageInner() {
   const searchParams = useSearchParams();
   const jobId = searchParams.get('jobId');
   
@@ -146,3 +146,12 @@ export default function ShortlistPage() {
     </div>
   );
 }
+
+export default function ShortlistPage() {
+  return (
+    <Suspense fallback={<div className="flex min-h-screen items-center justify-center">Loading...</div>}>
+      <ShortlistPageInner />
+    </Suspense>
+  );
+}
+
