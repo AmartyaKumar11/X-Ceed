@@ -27,6 +27,8 @@
     "start-all-simple": "start-all.bat"
   },
   "dependencies": {
+    "@apollo/server": "^5.5.1",
+    "@as-integrations/next": "^4.1.0",
     "@google/generative-ai": "^0.24.1",
     "@hookform/resolvers": "^5.0.1",
     "@langchain/community": "^0.3.46",
@@ -64,6 +66,7 @@
     "framer-motion": "^12.23.12",
     "google-auth-library": "^10.1.0",
     "googleapis": "^150.0.1",
+    "graphql": "^16.14.2",
     "gridfs-stream": "^1.1.1",
     "groq": "^3.92.0",
     "jose": "^6.0.11",
