@@ -133,8 +133,15 @@ lerna-debug.log*
 # Temporary files
 tmp/
 temp/
+tmp-*
 *.tmp
 *.temp
+
+# Local / generated test reports (regenerate via scripts)
+scripts/*-report.txt
+scripts/quality-audit-report.md
+scripts/e2e-test-report.txt
+test/data/*.pdf.txt
 
 # Database
 *.db
