@@ -1,4 +1,7 @@
-import pdfParse from 'pdf-parse';
+// Import the implementation directly — pdf-parse's index.js runs a debug
+// harness that opens ./test/data/05-versions-space.pdf when module.parent is unset
+// (common under Next/Webpack ESM bundling on Vercel).
+import pdfParse from 'pdf-parse/lib/pdf-parse.js';
 import fs from 'fs';
 import path from 'path';
 
