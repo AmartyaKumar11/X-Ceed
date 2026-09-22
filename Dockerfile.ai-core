@@ -1,4 +1,5 @@
-# AI Core — Railway production image
+﻿# AI Core — Railway production image
+# rebuild: AI Layer v2 Phases 1-3 2026-09-22
 FROM python:3.11-slim
 WORKDIR /app
 COPY services/python/requirements-ai-core.txt ./requirements.txt
