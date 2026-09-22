@@ -1,344 +1,234 @@
 # X-CEED
 
-**AI-powered recruitment intelligence and career enablement.**
+### What happens when you refuse to ship “resume goes into ChatGPT, score comes out”
 
-X-CEED is not a generic job board with a chatbot bolted on. It is a production system that **scores candidates against real job requirements with evidence**, explains *why*, surfaces skill gaps, and turns those gaps into career plans, mock interviews, quizzes, and curated learning — with a clear split between **decision models** (typed, calibrated) and **generation models** (text).
+**Live:** [x-ceed.vercel.app](https://x-ceed.vercel.app) · **AI Core:** [Railway](https://ai-core-production-2826.up.railway.app/health) · **AI Support:** [Railway](https://ai-support-production-81a3.up.railway.app/health)
 
-| | |
-|---|---|
-| **Live app** | https://x-ceed.vercel.app |
-| **AI Core** | https://ai-core-production-2826.up.railway.app |
-| **AI Support** | https://ai-support-production-81a3.up.railway.app |
-| **Stack** | Next.js 15 · FastAPI · LangGraph · MongoDB Atlas · GraphQL · Vercel + Railway |
+If you are a recruiter hiring for AI systems — platform, applied ML, agentic workflows — this README is written for you. Not as a feature brochure. As a record of how I thought while building something that had to survive production, quota limits, cold starts, and the temptation to fake the hard parts.
+
+Scroll if you want the journey. Jump to [Key decisions](#key-decisions-at-a-glance) if you only have five minutes. Run `node scripts/production-smoke-test.mjs` if you want proof instead of prose.
 
 ---
 
-## Who this README is for
+## The problem I actually cared about
 
-You are likely evaluating this as an **AI / ML / platform engineer** (or a hiring manager for those roles). This document answers the questions those interviews actually ask:
+Recruiting tools love the word “AI.” Most of them mean one of two things:
 
-1. What problem does the system solve, and where does AI sit in the critical path?
-2. How are models chosen — and what is *not* solved with an LLM?
-3. How do we reduce hallucination and black-box scores?
-4. What is the architecture in production (latency, failure modes, deploy topology)?
-5. How do you verify it works end-to-end without mocks on AI paths?
+1. **Keyword ATS with a new coat of paint** — brittle, gameable, zero explanation.
+2. **One giant prompt** — “here is a resume and a JD, give me a score from 0–100 and a paragraph.”
 
-If you only skim one section, read **[The AI thesis](#the-ai-thesis)** and **[Matching pipeline](#matching-pipeline-ai-core)**.
+I have used both. Both fail the moment you ask: *show me the sentence in the resume that justified that score.* Or: *why is this mechanical engineer somehow an 87 for a React role?* Or: *if I change the weight on communication from 10% to 25%, does anything real change?*
 
----
+X-CEED started as a recruitment SaaS. It became an obsession with a narrower question:
 
-## The AI thesis
+> **Can I build a match loop that is explainable, weightable, and dishonest-to-itself when the evidence is thin — without pretending a single LLM call is a hiring brain?**
 
-Most “AI recruiting” products do one of two things:
-
-- Dump a resume + JD into a chat model and ask for a score (opaque, unstable, hard to audit).
-- Keyword-match skills and call it ML (brittle, gameable, no explanation).
-
-X-CEED does neither.
-
-**Decisions that need calibration and typing** (fit levels, gap classes, requirement bars) go through **Jev (TypeSafe)** — System-1 style primitives: `choice`, `score`, `noul`. Outputs are structured. No “parse the JSON and hope.”
-
-**Language that needs to be written** (explanations, interview questions, quiz items, career narratives) goes through **DeepSeek** (and related OpenRouter keys where configured).
-
-**Retrieval / grounding** pulls from the candidate’s own resume text and job requirements. Match **evidence** is tied to `requirement → resume_excerpt → strength`. Explanations that do not cite resume skills fail our quality audits.
-
-That separation is intentional: **cheap, typed decisions** where a wrong number hurts trust; **generative text** where fluency matters.
+Everything else in the product — career plans, mock interviews, quizzes, YouTube modules — grows out of that loop. Gaps are not a sidebar. They are the bridge from “you don’t match yet” to “here is what to do next.”
 
 ---
 
-## Product surfaces
+## How the thinking evolved (the journey)
 
-### For recruiters
+### Phase 1 — “Just make matching work”
 
-- Configurable **evaluation weights** (skills / experience / education / projects / communication).
-- **AI Core shortlist** with live match scores and evidence-backed explanations.
-- Job CRUD, applications, GraphQL **recruiter dashboard** (stats, jobs, shortlist reads).
-- Outreach generation grounded in match context (via AI Core chat).
+Early versions did what every hackathon does: shove text into a model, parse JSON, hope. It demoed well. It did not *think* well.
 
-### For candidates
+What broke first:
 
-- Resume ↔ job **match** with component scores + evidence + gaps.
-- **Career plans** from gaps (objectives, projects, modules; YouTube where quota allows).
-- **Mock interviews** (adaptive questions + scored analysis).
-- **Quizzes** (unique generation + submit with weak-area feedback).
-- Video notes / AI assistant over transcripts (AI Support).
-- Optional **EduChain** learning bets (client-side wagmi + RainbowKit — no backend chain service).
+- Scores clustered. Everyone looked “pretty good.”
+- Explanations sounded HR-polite and cited nothing.
+- Gaps were generic (“improve your skills”) instead of named requirements.
+- One bad JSON parse and the whole UX lied or crashed.
+
+I learned the boring lesson early: **generation and judgment are different jobs.** Asking one model to do both is how you get confident nonsense.
+
+### Phase 2 — Split the brain on purpose
+
+I stopped asking “which LLM?” and started asking “what kind of answer do I need?”
+
+| Kind of answer | What I need | What I use |
+|----------------|-------------|------------|
+| Fit level, gap class, yes/no bar | Typed, stable, cheap, batchable | **Jev (TypeSafe)** — `choice` / `score` / `noul` |
+| Explanation, interview Q, quiz, plan prose | Fluent language | **DeepSeek** |
+| “Is this YouTube result actually about Docker?” | Relevance gate | **Jev noul**, not vibes |
+| Learning videos | Retrieval + quota reality | **YouTube API** + cache |
+
+Jev is System-1 for this product: fast, structured, calibrated probabilities, no “extract the number from the paragraph.” DeepSeek is System-2: write the human-facing layer *after* the decisions exist.
+
+That split is the architectural spine. If you interview me, that is the first thing I will defend.
+
+### Phase 3 — Graphs where state matters, not everywhere
+
+LangGraph lives in **AI Core** — analyze → match → gap → career-plan — because those steps share state, branch, and accumulate errors.
+
+LangGraph does **not** live in AI Support (quiz, mock interview, video notes). Those are request/response. Putting a graph there is cargo cult. Stateless FastAPI is the honest shape.
+
+I would rather explain a boring service that fits than a fashionable one that doesn’t.
+
+### Phase 4 — Production forced honesty
+
+Shipping to Vercel + Railway stopped being optional. That is when “it works on my machine with three Python processes” stopped counting.
+
+Things production taught me that local never did:
+
+- A dependency (`pdf-parse`) that opens a **test PDF at import time** can turn auth-gated routes into HTML 500s — looking like “security holes” when the real bug is a library side effect under ESM bundling. Fix: import the lib entry, not the package’s debug harness.
+- YouTube `search.list` burns free quota in hours. Caching (`yt:{hash}`) and graceful degrade are product features, not afterthoughts.
+- Cold starts need retries in smoke tests before you declare Railway “down.”
+- CORS is not theoretical. `FRONTEND_URL` on Railway must be the real Vercel origin or the browser silently fails while curl looks fine.
+
+The production smoke suite (`scripts/production-smoke-test.mjs`) hits **live URLs only**. No localhost. No mocked match scores. If AI is broken, the report says so.
 
 ---
 
-## Architecture (production)
+## Key decisions at a glance
+
+| Decision | Chose | Rejected | Why |
+|----------|-------|----------|-----|
+| Scoring brain | Jev for judgments + DeepSeek for prose | One LLM for everything | Auditable numbers vs fluent text |
+| Orchestration | LangGraph in AI Core only | Graph everywhere | Statefulness where it earns its keep |
+| API shape | REST mutations + GraphQL dashboard reads | GraphQL for all writes | Writes stay simple; reads get typed trees |
+| GraphQL hosting | Inside Next (`/api/graphql`) | Separate Apollo service | Same origin, shared JWT/Mongo, less ops |
+| Deploy split | Vercel (Next) + 2 Railway services | Monolith Node+Python | Independent scale, clear failure domains |
+| Blockchain | Client-side wagmi / EduChain bets | Backend holding keys | Learning accountability ≠ server custody |
+| Evidence contract | `requirement → excerpt → strength` | Score-only UX | Force grounding or fail quality audits |
+| Weights | Per-job configurable components | Fixed black-box score | Recruiters can express what they value |
+| Testing AI | Real providers in E2E/smoke | Mocked “AI” fixtures | Mocks hide the product |
+
+---
+
+## The match contract (what I refuse to ship without)
+
+A match response is not “valid” because HTTP 200. It is valid when:
+
+1. **Overall score** is a real number in range — not a vibes string.
+2. **Five component scores** exist: skills, experience, education, projects, communication.
+3. **Evidence** is non-empty; each item ties a requirement to a resume excerpt and a strength.
+4. **Gaps** name requirements and classify them (`missing` / `weak` / `under-evidenced`) — not “keep learning.”
+5. **Explanation** is long enough to be useful and actually mentions skills from the resume.
+
+I also built domain-aware dampening so a resume that is clearly another field does not get a flattering software score by accident. Flat scores across unrelated candidates were an early smell; I treated them as a bug in the product, not a quirk of the model.
+
+Quality audits and production smoke both encode this contract. If evidence is empty, that is a **fail**, not a warning.
+
+---
+
+## Architecture as a consequence of the thesis
 
 ```
-┌──────────────────────────── Vercel ────────────────────────────┐
-│  Next.js 15 (App Router) + React 19                            │
-│  • Marketing + dashboards                                      │
-│  • REST: auth, jobs, upload, resume-match proxy, career-plan   │
-│  • GraphQL gateway: /api/graphql (Apollo, same-origin)         │
-└───────────────┬────────────────────────────┬───────────────────┘
-                │                            │
-                ▼                            ▼
-┌──────────────────────┐      ┌──────────────────────────┐
-│ Railway: AI Core     │      │ Railway: AI Support      │
-│ FastAPI · :8000      │      │ FastAPI · :8001          │
-│ LangGraph pipelines  │      │ Stateless request/resp   │
-│ Jev + DeepSeek       │      │ DeepSeek (+ YouTube API) │
-│ Mongo cache / RAG    │      │ Quiz · Mock · Video · YT │
-└──────────┬───────────┘      └────────────┬─────────────┘
-           └──────────────┬────────────────┘
-                          ▼
-                    MongoDB Atlas
+Browser
+  └─ Next.js 15 (Vercel)
+        ├─ Auth, jobs, uploads (REST)
+        ├─ Match / career proxies → AI Core
+        ├─ Quiz / mock / video proxies → AI Support
+        └─ GraphQL (Apollo) — dashboard reads, JWT required
+              │
+      ┌───────┴────────┐
+      ▼                ▼
+ AI Core (Railway)   AI Support (Railway)
+ LangGraph + Jev     Stateless DeepSeek
+ DeepSeek prose      Quiz · Mock · Video · YT
+ Mongo cache         Quota-aware curation
 ```
 
-**Design choices worth calling out in an interview:**
+### Why two AI services?
 
-| Choice | Why |
-|--------|-----|
-| GraphQL inside Next, not a separate service | Same origin, shared JWT/Mongo, simpler ops |
-| LangGraph only in AI Core | Support endpoints are single-shot; graph overhead is wrong there |
-| Blockchain client-side only | No server holding keys; RainbowKit talks EduChain testnet |
-| REST for mutations, GraphQL for dashboard reads | Clear write path; typed read models for UI |
-| Two Railway services | Independent scale/deploy; Core is heavier (LangGraph + Jev) |
+AI Core is heavy: graphs, Jev batches, caching, career modules.  
+AI Support is bursty and simpler: generate a quiz, ask one interview question, fetch a transcript.
 
-Dockerfiles: `Dockerfile.ai-core`, `Dockerfile.ai-support`.
+Coupling them would make every quiz deploy wait on matching changes. Separating them made deploy and mental models cleaner. Dockerfiles are explicit: `Dockerfile.ai-core`, `Dockerfile.ai-support`.
 
----
+### Why GraphQL at all?
 
-## Matching pipeline (AI Core)
-
-Primary production path:
-
-1. **Analyze** resume text → structured candidate profile (`POST /analyze`).
-2. **Match** profile ↔ job requirements + optional weights (`POST /match`).
-3. **Gap** classification on the match result (`POST /gap`).
-4. **Career plan** from gaps (`POST /career-plan`).
-
-Next.js proxies common UX flows (e.g. `/api/resume-match/analyze`, `/api/career-plan/generate`) so the browser hits Vercel with a JWT; Vercel calls Railway with server-side env URLs.
-
-### What a match response must contain
-
-We treat these as **product contracts**, not nice-to-haves:
-
-- `overallScore` / `overall_score` ∈ `[0, 100]`
-- `componentScores` for all five: skills, experience, education, projects, communication
-- Non-empty **evidence**: each item has requirement + resume excerpt + strength
-- Non-empty **gaps** when the fit is imperfect (expected for real JDs)
-- **Explanation** long enough to be useful and grounded in resume skills
-
-Domain-aware scoring dampens obvious mismatches (e.g. mechanical-only resume vs software SE JD) so scores are not flat or universally “everyone is an 85.”
-
-### Caching
-
-Mongo `ai_cache` keys such as `match:v3` and YouTube skill caches reduce cost and quota burn. Cache version bumps force recalibration after scoring changes.
+Recruiters and candidates both need nested reads: jobs with stats, profiles with skills and match history. REST was getting chatty. GraphQL as a **read layer** inside Next kept auth and Mongo in one place. Mutations stayed REST. That hybrid is deliberate, not incomplete.
 
 ---
 
-## Model stack (interview-ready)
+## What the product does once matching is honest
 
-| Tier | Model | Role | Typical use |
-|------|--------|------|-------------|
-| 1 | **Jev (TypeSafe)** | Typed decisions + calibrated probs | Requirement fit, gap class, priority, quality gates |
-| 2 | **DeepSeek** | Text generation | Explanations, interview Qs, quizzes, plans |
-| 3 | **YouTube Data API** | Retrieval | Curated learning videos per skill/gap |
+**Recruiters** set weights, shortlist with live scores, read evidence-backed explanations, use a GraphQL dashboard.
 
-**Why not one model for everything?**
+**Candidates** get a score they can interrogate, gaps they can act on, a career plan (objectives, projects, modules), mock interviews that adapt, quizzes that are not stock question banks, and video notes when transcripts exist.
 
-- A single LLM score is hard to regress-test and easy to game with prompt fluff.
-- Typed Jev outputs plug into scoring math without brittle JSON parsing.
-- Generative models stay where prose quality matters.
-
-Keys: `TYPESAFE_API_KEY`, `DEEPSEEK_API_KEY`, `YOUTUBE_API_KEY` (plus OpenRouter keys for some Support features).
+EduChain learning bets sit on the side as client-side accountability — interesting, but **not** the load-bearing AI path. I will not pretend blockchain is the matching engine.
 
 ---
 
-## AI Support service
+## Failure modes I design for
 
-Stateless FastAPI app (`xceed_ai_support.py`):
+| Failure | What users see | What I do |
+|---------|----------------|-----------|
+| Model timeout / 5xx | Honest error, retry path | Smoke tests retry cold starts once |
+| YouTube quota 429 | Plan still generates; videos may be thin | Cache + warn, don’t fake URLs |
+| Thin job description | Weak match quality | Prefer real jobs; tests pad carefully and log it |
+| Unauthenticated sensitive API | 401 | Enforced in middleware; smoke asserts it |
+| Library import side effects | Would be 500 | Fixed at the import boundary |
 
-| Endpoint family | Purpose |
-|-----------------|--------|
-| `/quiz/generate`, `/quiz/submit` | Unique quizzes + scored feedback |
-| `/mock-interview/question`, `/analyze`, `/report` | Adaptive interview loop |
-| `/video/notes`, `/transcript`, `/chat`, `/clips` | Video learning assistant |
-| `/youtube/curate` | Skill → YouTube list (quota-sensitive) |
-| `/parse-job-description` | JD ingestion helper |
-
-YouTube free-tier quota is a known operational constraint (`search.list` is expensive). The system caches aggressively and degrades gracefully (warnings in smoke tests rather than hard failure when quota is exhausted).
+I care more about **failing loudly and correctly** than looking “always AI-on.”
 
 ---
 
-## Auth, GraphQL, and security posture
-
-- JWT auth (`/api/auth/login`, cookie + `Authorization: Bearer`).
-- Sensitive App Router routes use `authMiddleware` and return **401** when unauthenticated (upload, RAG analyze, shortlist).
-- Debug/test dump routes are removed (expect **404**).
-- GraphQL enforces auth; `recruiterDashboard` requires recruiter role; applicants get a role error (by design).
-- CORS on Railway allows the production Vercel origin (`FRONTEND_URL`).
-
-We do **not** claim “secure because AI.” Security here is boring middleware, deleted debug routes, and production smoke checks that fail if sensitive endpoints answer without a token.
-
----
-
-## Repository map
-
-```
-src/app/                  Next App Router (UI + some API routes)
-src/pages/api/            Pages API (auth, jobs, graphql, resume-match, …)
-src/lib/                  Shared auth, Mongo, PDF extract, weights
-services/python/          AI Core + AI Support FastAPI apps
-Dockerfile.ai-core        Production image for matching / LangGraph
-Dockerfile.ai-support     Production image for quiz / mock / video
-scripts/                  E2E + production smoke + quality audits
-X-CEED_MASTER_DEPLOY_BIBLE.md   Deep deploy / agent reference
-```
-
----
-
-## Local development
-
-### Prerequisites
-
-- Node.js 18+ (20+ recommended)
-- Python 3.11+
-- MongoDB Atlas (or local Mongo)
-- API keys: DeepSeek, TypeSafe (Jev), optional YouTube / OpenRouter / Firebase
-
-### Setup
-
-```bash
-npm install
-npm run setup:python          # pip install both requirements files
-cp .env.example .env.local    # fill secrets — never commit .env.local
-```
-
-### Run everything
-
-```bash
-npm run dev:full
-# Next.js  → http://localhost:3002
-# AI Core  → http://localhost:8000/health
-# Support  → http://localhost:8001/health
-```
-
-Or separately:
-
-```bash
-npm run ai-core
-npm run ai-support
-npm run dev
-```
-
-### Environment (high level)
-
-**Vercel / Next**
-
-- `MONGODB_URI`, `JWT_SECRET`
-- `NEXT_PUBLIC_AI_CORE_URL`, `NEXT_PUBLIC_AI_SUPPORT_URL`
-- Firebase `NEXT_PUBLIC_*` as needed
-- `NEXT_PUBLIC_BASE_URL`
-
-**Railway AI Core**
-
-- `DEEPSEEK_API_KEY`, `TYPESAFE_API_KEY`, `MONGODB_URI`, `YOUTUBE_API_KEY`
-- `FRONTEND_URL=https://x-ceed.vercel.app`
-
-**Railway AI Support**
-
-- `DEEPSEEK_API_KEY`, `MONGODB_URI`, `YOUTUBE_API_KEY`, OpenRouter keys as used
-- `FRONTEND_URL=https://x-ceed.vercel.app`
-
-See `.env.example` and `X-CEED_MASTER_DEPLOY_BIBLE.md` §9 for the full matrix.
-
----
-
-## Verification (no mocks on AI paths)
-
-### Production smoke (live URLs)
+## How I prove it in production
 
 ```bash
 node scripts/production-smoke-test.mjs
 ```
 
-Hits **only** production:
+That script walks infrastructure, security, matching, AI Support, GraphQL, routes, and CORS against the live URLs. Latest report: `scripts/production-test-report.md`.
 
-- Infra health (Vercel + both Railway `/health` + login + GraphQL)
-- Auth / security (401s, deleted debug routes)
-- Full match → gap → career-plan against a live job
-- Mock interview, quiz, video notes, YouTube curate
-- GraphQL auth boundaries
-- Frontend routes + CORS
-
-Writes `scripts/production-test-report.md`.
-
-### Local E2E / quality
+Local full pipeline and scoring audits:
 
 ```bash
-node scripts/e2e-pipeline-test.mjs      # local ports by default
-node scripts/quality-audit.mjs          # scoring / evidence quality
+npm run dev:full
+node scripts/e2e-pipeline-test.mjs
+node scripts/quality-audit.mjs
 ```
 
-**Policy:** AI paths use real providers. If a key or quota is missing, tests log warnings or fail honestly — they do not substitute fake match scores.
+**Rule I hold myself to:** no mocked AI on the critical path. If DeepSeek or Jev is down, the test fails or warns. It does not invent a 78 and move on.
 
 ---
 
-## Deployment
+## Local setup (for people who want to touch it)
 
-| Layer | Host | Notes |
-|-------|------|-------|
-| Frontend + BFF | Vercel project `x-ceed` | GitHub `main` → production |
-| AI Core | Railway service `ai-core` | `Dockerfile.ai-core`, health `/health` |
-| AI Support | Railway service `ai-support` | `Dockerfile.ai-support`, health `/health` |
+```bash
+npm install
+npm run setup:python
+cp .env.example .env.local   # never commit secrets
+npm run dev:full             # :3002 Next · :8000 Core · :8001 Support
+```
 
-Typical flow: push `main` → Vercel rebuilds → Railway rebuilds watched services → set `NEXT_PUBLIC_AI_*` to Railway public URLs → set Railway `FRONTEND_URL` to the Vercel URL for CORS.
+Core env ideas: `MONGODB_URI`, `JWT_SECRET`, `DEEPSEEK_API_KEY`, `TYPESAFE_API_KEY`, `YOUTUBE_API_KEY`, `NEXT_PUBLIC_AI_CORE_URL`, `NEXT_PUBLIC_AI_SUPPORT_URL`, Railway `FRONTEND_URL` → Vercel origin.
 
-Known operational gotcha: `pdf-parse`’s default entry runs a debug harness that opens a test PDF; production imports the lib entry directly so auth routes do not 500 on cold start (`src/lib/pdfExtractor.js`).
-
----
-
-## What “good” looks like in a demo
-
-1. Open https://x-ceed.vercel.app → loading splash → landing.
-2. Sign in → applicant **resume match** against a real job.
-3. Show **component scores**, **evidence excerpts**, and **gaps** (not a single magic %).
-4. Generate a **career plan**; open a module / video path.
-5. Run a **mock interview** question + analysis.
-6. Optionally show GraphQL `candidateProfile` in Network tab (JWT required).
-
-If a recruiter asks “how do I know the AI isn’t lying?” — point at evidence excerpts vs resume text, gap classifications, and the production smoke report.
+Deep deploy notes live in `X-CEED_MASTER_DEPLOY_BIBLE.md` — that file is the ops brain; this README is the product brain.
 
 ---
 
-## Limitations (honest)
+## What I would tell you in an interview
 
-- **YouTube API quota** can exhaust on free tier; curation degrades with cache/fallback.
-- **Generative latency** varies (quiz generation can exceed 10s under load).
-- **Match quality** depends on resume text quality and JD specificity; thin JDs are padded carefully in tests but production jobs should be real.
-- EduChain / learning bets require wallet + testnet config; they are not required for the core match loop.
+If we talked for thirty minutes, I would not lead with “I used LangGraph.” I would lead with:
 
----
+1. **Judgment ≠ generation.** I split models by job-to-be-done.
+2. **Evidence is a product requirement**, not a prompt suggestion.
+3. **Graphs earn their complexity**; I refused them where the flow is a single shot.
+4. **Production is part of the AI system** — quota, CORS, import side effects, cold starts.
+5. **Tests that hit real providers** are how I know I’m not lying to myself.
 
-## Tech snapshot
-
-- **Frontend:** Next.js 15, React 19, Tailwind, Radix, Framer Motion  
-- **API:** Next Route Handlers + Pages API, Apollo GraphQL  
-- **AI:** LangGraph, LangChain, TypeSafe/Jev, DeepSeek, Chroma (RAG paths)  
-- **Data:** MongoDB Atlas  
-- **Infra:** Vercel, Railway, Docker  
+X-CEED is the artifact of that thinking: a recruitment platform whose AI path is designed to be **interrogable**.
 
 ---
 
-## Scripts reference
+## Stack snapshot
 
-| Script | Purpose |
-|--------|---------|
-| `npm run dev:full` | Next + AI Core + AI Support |
-| `node scripts/production-smoke-test.mjs` | Live production gate |
-| `node scripts/e2e-pipeline-test.mjs` | Local full pipeline |
-| `node scripts/quality-audit.mjs` | Match/evidence quality |
+Next.js 15 · React 19 · FastAPI · LangGraph · LangChain · TypeSafe/Jev · DeepSeek · MongoDB Atlas · Apollo GraphQL · Vercel · Railway · Docker · (optional) wagmi / EduChain
 
 ---
 
-## License / contact
+## Closing
 
-Private project repository. For hiring conversations about this system, treat the live URLs and `scripts/production-test-report.md` as the source of truth for “does it run in production?”
+I built X-CEED because I was tired of AI recruiting demos that could not survive a skeptical “why this score?” question.
 
-Built as a serious AI product surface for recruiting — **evidence first, scores second, generation last.**
+If you read this far, you already know how I work: start from the failure mode, choose the smallest honest architecture, put contracts on the outputs, and verify against production — not against a slide.
+
+**Try it:** [https://x-ceed.vercel.app](https://x-ceed.vercel.app)  
+**Ask it to explain itself:** run a match, open the evidence, follow a gap into a plan.
+
+That loop — match → evidence → gap → action — is the product. Everything else is scaffolding.
