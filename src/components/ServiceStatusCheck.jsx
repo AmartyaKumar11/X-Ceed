@@ -6,8 +6,8 @@ import { Card, CardContent } from "@/components/ui/card";
 
 export default function ServiceStatusCheck({ showDetails = false }) {
   const [serviceStatus, setServiceStatus] = useState({
-    jobDescService: { status: 'checking', name: 'Job Description Service (Port 8008)' },
-    ragService: { status: 'checking', name: 'RAG Service (Port 8000)' },
+    jobDescService: { status: 'checking', name: 'AI Support (Port 8001)' },
+    ragService: { status: 'checking', name: 'AI Core (Port 8000)' },
   });
 
   useEffect(() => {
@@ -16,8 +16,8 @@ export default function ServiceStatusCheck({ showDetails = false }) {
 
   const checkServices = async () => {
     const services = [
-      { key: 'jobDescService', url: 'http://localhost:8008/', name: 'Job Description Service (Port 8008)' },
-      { key: 'ragService', url: 'http://localhost:8000/health', name: 'RAG Service (Port 8000)' }
+      { key: 'jobDescService', url: 'http://localhost:8001/', name: 'AI Support (Port 8001)' },
+      { key: 'ragService', url: 'http://localhost:8000/health', name: 'AI Core (Port 8000)' }
     ];
 
     for (const service of services) {
@@ -99,8 +99,8 @@ export default function ServiceStatusCheck({ showDetails = false }) {
           {hasOfflineServices && (
             <div className="mt-2 text-xs text-muted-foreground">
               <div>To start services:</div>
-              <div>• Job Description Service: <code>npm run job-desc-service</code></div>
-              <div>• RAG Service: <code>npm run rag-service</code></div>
+              <div>• AI Support: <code>npm run job-desc-service</code></div>
+              <div>• AI Core: <code>npm run rag-service</code></div>
             </div>
           )}
         </div>

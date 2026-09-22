@@ -5,8 +5,8 @@ import path from 'path';
 import { NextResponse } from 'next/server';
 
 // Python FastAPI service URLs
-const PYTHON_RAG_SERVICE_URL = process.env.PYTHON_RAG_SERVICE_URL || 'http://localhost:8000';
-const PYTHON_GEMINI_CHAT_SERVICE_URL = process.env.PYTHON_GEMINI_CHAT_SERVICE_URL || 'http://localhost:8003';
+const PYTHON_RAG_SERVICE_URL = process.env.NEXT_PUBLIC_AI_CORE_URL || process.env.PYTHON_RAG_SERVICE_URL || 'http://localhost:8000';
+const PYTHON_GEMINI_CHAT_SERVICE_URL = process.env.NEXT_PUBLIC_AI_CORE_URL || process.env.PYTHON_GEMINI_CHAT_SERVICE_URL || 'http://localhost:8000';
 
 export async function POST(request) {
   console.log('🤖 Python RAG-Powered Resume Analysis API called');
@@ -196,7 +196,7 @@ EDUCATION:
           analyzedAt: new Date().toISOString(),
           jobId,
           userId,
-          model: 'llama-3.1-8b-instant',
+          model: 'liquidai/lfm2.5-1.2b-thinking:free',
           ragEnabled: true,
           service: 'python-fastapi',
           resumeTextLength: finalResumeText ? finalResumeText.length : 0
@@ -217,7 +217,7 @@ EDUCATION:
 async function performOpenRouterAnalysis({ jobDescription, jobTitle, jobRequirements, resumeText, userId }) {
   console.log('🤖 Performing OpenRouter AI analysis as fallback...');
   
-  const OPENROUTER_API_KEY = process.env.OPENROUTER_PREP_PLAN_API_KEY;
+  const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
   
   if (!OPENROUTER_API_KEY) {
     throw new Error('OpenRouter API Key not configured');
@@ -370,7 +370,7 @@ FINAL REMINDER: Put ALL technical skills the candidate lacks in "missingSkills".
 
   // Try multiple free models with fallback
   const freeModels = [
-    'meta-llama/llama-3.2-3b-instruct:free',
+    'liquidai/lfm2.5-1.2b-thinking:free',
     'microsoft/phi-3-mini-128k-instruct:free',
     'google/gemma-2-9b-it:free'
   ];
@@ -378,6 +378,14 @@ FINAL REMINDER: Put ALL technical skills the candidate lacks in "missingSkills".
   for (const model of freeModels) {
     try {
       console.log(`🤖 Trying OpenRouter model: ${model}`);
+      
+      // Check API key before making request
+      if (!OPENROUTER_API_KEY) {
+        console.error(`❌ OpenRouter API key not found for model ${model}`);
+        throw new Error('OPENROUTER_API_KEY not configured');
+      }
+      
+      console.log(`🔑 Using OpenRouter API key: ${OPENROUTER_API_KEY.substring(0, 10)}...`);
       
       const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
         method: 'POST',
@@ -399,6 +407,8 @@ FINAL REMINDER: Put ALL technical skills the candidate lacks in "missingSkills".
           max_tokens: 3000,
         }),
       });
+
+      console.log(`📡 OpenRouter response status for ${model}: ${response.status} ${response.statusText}`);
 
       if (response.ok) {
         const data = await response.json();
@@ -584,11 +594,45 @@ FINAL REMINDER: Put ALL technical skills the candidate lacks in "missingSkills".
                 }
               }
             };
+          } else {
+            console.warn(`⚠️ ${model} returned empty content`);
+            continue;
           }
+        } else {
+          console.warn(`⚠️ ${model} returned no content in response`);
+          continue;
         }
+      } else {
+        // Response not OK - log the error
+        const errorText = await response.text().catch(() => 'Could not read error response');
+        console.error(`❌ ${model} API error (${response.status} ${response.statusText}):`, errorText);
+        try {
+          const errorJson = JSON.parse(errorText);
+          console.error(`❌ ${model} error details:`, JSON.stringify(errorJson, null, 2));
+        } catch (e) {
+          // Error response is not JSON, already logged as text
+        }
+        continue;
       }
     } catch (error) {
-      console.warn(`⚠️ ${model} failed:`, error.message);
+      // Enhanced error logging
+      console.error(`❌ ${model} failed:`, {
+        message: error.message,
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        error: error
+      });
+      
+      // Try to get response body if available
+      if (error.response) {
+        try {
+          const errorBody = await error.response.text();
+          console.error(`❌ ${model} error response body:`, errorBody);
+        } catch (e) {
+          // Ignore if we can't read the body
+        }
+      }
+      
       continue;
     }
   }

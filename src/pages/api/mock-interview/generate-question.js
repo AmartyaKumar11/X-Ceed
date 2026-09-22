@@ -7,7 +7,8 @@ export default async function handler(req, res) {
   if (req.body.test) {
     try {
       const fetch = require("node-fetch");
-      const response = await fetch("http://localhost:8008/health", {
+      const base = process.env.NEXT_PUBLIC_AI_SUPPORT_URL || "http://localhost:8001";
+      const response = await fetch(`${base}/health`, {
         method: "GET",
         timeout: 5000,
       });
@@ -35,11 +36,12 @@ export default async function handler(req, res) {
       previous_questions: req.body.questionHistory || req.body.previous_questions || []
     };
     
-    const response = await fetch("http://localhost:8008/generate-question", {
+    const base = process.env.NEXT_PUBLIC_AI_SUPPORT_URL || "http://localhost:8001";
+    const response = await fetch(`${base}/mock-interview/question`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(backendRequest),
-      timeout: 10000, // 10 second timeout
+      timeout: 30000,
     });
 
     if (!response.ok) {

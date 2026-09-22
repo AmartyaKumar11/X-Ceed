@@ -39,18 +39,20 @@ export default async function handler(req, res) {
 
       // Check if Python service is available
       try {
-        const healthResponse = await fetch("http://localhost:8008/", {
+        const base = process.env.NEXT_PUBLIC_AI_SUPPORT_URL || "http://localhost:8001";
+        await fetch(`${base}/health`, {
           method: "GET",
           timeout: 5000
         });
       } catch (healthError) {
         return res.status(503).json({ 
-          error: "Python backend service not available. Please start the job description service on port 8008.",
-          details: "Run 'npm run job-desc-service' to start the Python backend."
+          error: "AI Support service not available. Start with npm run ai-support (port 8001).",
+          details: "Run 'npm run ai-support' to start the Python backend."
         });
       }
 
-      const response = await fetch("http://localhost:8008/parse-job-description", {
+      const base = process.env.NEXT_PUBLIC_AI_SUPPORT_URL || "http://localhost:8001";
+      const response = await fetch(`${base}/parse-job-description`, {
         method: "POST",
         body: formData,
         headers: formData.getHeaders(),
@@ -79,7 +81,7 @@ export default async function handler(req, res) {
       res.status(500).json({ 
         error: "Connection to Python service failed",
         details: proxyErr.message,
-        suggestion: "Ensure the Python backend service is running on port 8008"
+        suggestion: "Ensure AI Support is running on port 8001 (npm run ai-support)"
       });
     }
   });

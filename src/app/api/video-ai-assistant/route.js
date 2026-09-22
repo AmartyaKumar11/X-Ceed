@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 
-const PYTHON_SERVICE_URL = process.env.PYTHON_VIDEO_AI_SERVICE_URL || 'http://localhost:8002';
+const PYTHON_SERVICE_URL = process.env.NEXT_PUBLIC_AI_SUPPORT_URL || process.env.PYTHON_VIDEO_AI_SERVICE_URL || 'http://localhost:8001';
 
 export async function POST(request) {
   try {
@@ -22,14 +22,17 @@ export async function POST(request) {
       const timeoutId = setTimeout(() => controller.abort(), 45000); // 45 second timeout for notes
       
       // Use different endpoint based on request type
-      const endpoint = isNotesRequest ? '/generate-notes' : '/chat';
+      // Prefer AI Support video endpoints (port 8001)
+      const endpoint = isNotesRequest ? '/video/notes' : '/video/chat';
       const requestBody = isNotesRequest ? 
-        { video_id: videoId, title: videoTitle, channel: videoChannel } :
+        { transcript: '', video_title: videoTitle, title: videoTitle, channel: videoChannel, video_id: videoId } :
         {
           message,
-          video_id: videoId,
+          transcript: '',
           video_title: videoTitle,
+          video_id: videoId,
           video_channel: videoChannel,
+          history: conversationHistory || [],
           conversation_history: conversationHistory || []
         };
 
@@ -77,7 +80,29 @@ export async function POST(request) {
     }    // Fallback to direct Gemini API call
     const { GoogleGenerativeAI } = await import('@google/generative-ai');
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" }); // Updated model name
+    // Try Gemini 2.0 first, then 1.5-flash, then gemini-pro (with fallback chain)
+    // Note: JavaScript SDK uses model name without "models/" prefix
+    const modelChain = [
+      'gemini-2.5-flash',          // Gemini 2.5 Flash (best performance, 5 RPM)
+      'gemini-2.5-flash-lite',     // Gemini 2.5 Flash Lite (higher rate limits, 10 RPM)
+      'gemini-3-flash',            // Gemini 3 Flash (if available)
+      'gemini-1.5-flash',          // Gemini 1.5 Flash (stable fallback)
+      'gemini-pro'                 // Gemini Pro (final fallback)
+    ];
+    let model;
+    for (const modelName of modelChain) {
+      try {
+        model = genAI.getGenerativeModel({ model: modelName });
+        console.log(`[INFO] Using Gemini model: ${modelName}`);
+        break;
+      } catch (error) {
+        console.log(`[DEBUG] Model ${modelName} not available, trying next...`);
+        continue;
+      }
+    }
+    if (!model) {
+      throw new Error('Failed to initialize any Gemini model');
+    }
 
     // Build conversation context
     const conversationContext = conversationHistory

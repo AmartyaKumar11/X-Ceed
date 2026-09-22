@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 
-const QUIZ_SERVICE_URL = process.env.PYTHON_QUIZ_SERVICE_URL || 'http://localhost:8006';
+const QUIZ_SERVICE_URL = process.env.NEXT_PUBLIC_AI_SUPPORT_URL || process.env.PYTHON_QUIZ_SERVICE_URL || 'http://localhost:8001';
 
 export async function POST(request) {
   try {
@@ -11,10 +11,10 @@ export async function POST(request) {
     
     switch (action) {
       case 'generate_quiz':
-        endpoint = '/generate-quiz';
+        endpoint = '/quiz/generate';
         break;
       case 'submit_quiz':
-        endpoint = '/submit-quiz';
+        endpoint = '/quiz/submit';
         break;
       default:
         return NextResponse.json({ 

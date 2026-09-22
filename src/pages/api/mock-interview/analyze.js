@@ -7,7 +7,8 @@ export default async function handler(req, res) {
   if (req.body.test) {
     try {
       const fetch = require("node-fetch");
-      const response = await fetch("http://localhost:8008/health", {
+      const base = process.env.NEXT_PUBLIC_AI_SUPPORT_URL || "http://localhost:8001";
+      const response = await fetch(`${base}/health`, {
         method: "GET",
         timeout: 5000,
       });
@@ -20,7 +21,7 @@ export default async function handler(req, res) {
     } catch (error) {
       return res.status(503).json({ 
         error: "Backend service unavailable", 
-        message: "The Python backend service (port 8008) is not running.",
+        message: "AI Support service (port 8001) is not running.",
         fallback: true
       });
     }
@@ -37,11 +38,12 @@ export default async function handler(req, res) {
       answers: req.body.answerHistory || req.body.answers || []
     };
     
-    const response = await fetch("http://localhost:8008/analyze-answers", {
+    const base = process.env.NEXT_PUBLIC_AI_SUPPORT_URL || "http://localhost:8001";
+    const response = await fetch(`${base}/mock-interview/analyze`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(backendRequest),
-      timeout: 15000, // 15 second timeout for analysis
+      timeout: 45000,
     });
 
     if (!response.ok) {
@@ -56,7 +58,7 @@ export default async function handler(req, res) {
     // Return a fallback error response
     res.status(503).json({ 
       error: "Backend service unavailable", 
-      message: "The Python backend service (port 8008) is not running. Please start the service and try again.",
+      message: "AI Support service (port 8001) is not running. Please start the service and try again.",
       fallback: true
     });
   }
