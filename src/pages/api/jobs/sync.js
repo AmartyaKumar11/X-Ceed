@@ -54,8 +54,9 @@ export default async function handler(req, res) {
     return res.status(405).end();
   }
 
+  // Always require secret — unset env must not leave sync open on Vercel
   const syncSecret = process.env.JOB_SYNC_SECRET;
-  if (syncSecret && req.headers['x-sync-secret'] !== syncSecret) {
+  if (!syncSecret || req.headers['x-sync-secret'] !== syncSecret) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
