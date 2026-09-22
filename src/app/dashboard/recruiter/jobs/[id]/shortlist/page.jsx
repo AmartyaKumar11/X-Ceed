@@ -27,6 +27,7 @@ import {
   Sparkles
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
+import { ShiningText } from "@/components/ui/shining-text";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -660,9 +661,11 @@ export default function AIShortlistPage() {
             <CardContent className="py-8">
               <div className="text-center">
                 <Brain className="h-12 w-12 text-blue-500 mx-auto mb-4 animate-pulse" />
-                <h3 className="text-lg font-semibold text-foreground mb-2">AI Analysis in Progress</h3>
+                <h3 className="text-lg font-semibold text-foreground mb-2">
+                  <ShiningText text="AI Analysis in Progress" className="text-lg font-semibold" />
+                </h3>
                 <p className="text-muted-foreground mb-4">
-                  Analyzing candidate resumes and matching against job requirements...
+                  <ShiningText text="Analyzing candidate resumes and matching against job requirements..." className="text-sm" />
                 </p>
                 <div className="w-full max-w-xs mx-auto">
                   <Progress value={75} className="h-2" />

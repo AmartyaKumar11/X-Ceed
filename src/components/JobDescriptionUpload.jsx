@@ -5,6 +5,7 @@ import { Upload, FileText, X, CheckCircle } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/components/ui/use-toast";
+import { ShiningText } from "@/components/ui/shining-text";
 
 export default function JobDescriptionUpload({ onJobDescriptionSet }) {
   const [jobDescription, setJobDescription] = useState('');
@@ -156,7 +157,7 @@ export default function JobDescriptionUpload({ onJobDescriptionSet }) {
                   {isUploading ? (
                     <div className="flex items-center gap-2">
                       <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
-                      <span>Processing...</span>
+                      <ShiningText text="Processing..." />
                     </div>
                   ) : (
                     <>

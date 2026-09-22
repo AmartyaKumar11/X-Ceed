@@ -34,6 +34,7 @@ import { Separator } from "@/components/ui/separator";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import EnhancedVideoSelector from "@/components/prep-plan/EnhancedVideoSelector";
 import { peekResumeMatchJob } from "@/lib/resumeMatchHandoff";
+import { ShiningText } from "@/components/ui/shining-text";
 
 function ResumeMatchPageInner() {
   const searchParams = useSearchParams();
@@ -1005,7 +1006,7 @@ The prep plan is ready and waiting for you! 🚀`,
             {analyzing && (
               <div className="flex items-center gap-2 px-4 py-2 bg-blue-50 dark:bg-blue-950 rounded-full">
                 <Brain className="h-4 w-4 text-blue-600 animate-pulse" />
-                <span className="text-sm font-medium text-blue-700 dark:text-blue-300">AI analyzing...</span>
+                <ShiningText text="AI analyzing..." className="text-sm font-medium" />
               </div>
             )}
           </div>        {/* Main Content - Responsive Grid */}
@@ -1427,13 +1428,19 @@ The prep plan is ready and waiting for you! 🚀`,
                   <div className="text-center">
                     <Brain className="h-16 w-16 text-muted-foreground mx-auto mb-6" />
                     <h3 className="text-xl font-semibold mb-2">Ready to Analyze</h3>
-                    <p className="text-muted-foreground mb-6">
-                      {analyzing ? 'AI is analyzing your resume...' : 
-                       loading ? 'Loading job and resume data...' :
-                       !job ? 'Job data not available' :
-                       !userResume ? 'Resume data not available' :
-                       'Click below to start your AI-powered resume analysis'}
-                    </p>
+                    <div className="text-muted-foreground mb-6">
+                      {analyzing ? (
+                        <ShiningText text="AI is analyzing your resume..." />
+                      ) : loading ? (
+                        <ShiningText text="Loading job and resume data..." />
+                      ) : !job ? (
+                        'Job data not available'
+                      ) : !userResume ? (
+                        'Resume data not available'
+                      ) : (
+                        'Click below to start your AI-powered resume analysis'
+                      )}
+                    </div>
                     
                     {!analyzing && !loading && job && userResume && (
                       <Button 
@@ -1622,7 +1629,7 @@ The prep plan is ready and waiting for you! 🚀`,
                         <div className="bg-muted rounded-lg px-4 py-2">
                           <div className="flex items-center gap-2">
                             <Loader2 className="h-4 w-4 animate-spin" />
-                            <span className="text-sm text-muted-foreground">Thinking...</span>
+                            <ShiningText text="Thinking..." className="text-sm" />
                           </div>
                         </div>
                       </div>                    )}
@@ -1669,9 +1676,12 @@ The prep plan is ready and waiting for you! 🚀`,
                   )}
                   {/* Status indicator */}
                   {(chatLoading || isTypingResponse) && (
-                    <p className="text-xs text-muted-foreground mt-2 text-center">
-                      {chatLoading ? 'Processing your question...' : 'AI is responding...'}
-                    </p>
+                    <div className="mt-2 text-center">
+                      <ShiningText
+                        text={chatLoading ? 'Processing your question...' : 'AI is responding...'}
+                        className="text-xs"
+                      />
+                    </div>
                   )}
                 </div>
               </CardContent>

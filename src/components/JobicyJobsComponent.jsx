@@ -22,6 +22,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { ShiningText } from "@/components/ui/shining-text";
 import { useRouter } from 'next/navigation';
 import ResumeUploadDialog from './ResumeUploadDialog';
 import { stashResumeMatchJob } from '@/lib/resumeMatchHandoff';
@@ -553,6 +554,11 @@ export default function JobicyJobsComponent() {
                   Apply
                 </Button>
               </div>
+              {matchingJobs.has(job._id) && (
+                <div className="mt-2">
+                  <ShiningText text="AI is matching your resume..." className="text-xs" />
+                </div>
+              )}
             </div>
           ))}
         </div>

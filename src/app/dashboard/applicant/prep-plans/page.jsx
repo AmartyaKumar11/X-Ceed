@@ -39,6 +39,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { ShiningText } from "@/components/ui/shining-text";
 import {
   Dialog,
   DialogContent,
@@ -431,6 +432,11 @@ export default function PrepPlansPage() {
                         </>
                       )}
                     </Button>
+                  )}
+                  {generatingPlan === plan._id && (
+                    <div className="mt-2 text-center">
+                      <ShiningText text="AI is building your study plan..." className="text-xs" />
+                    </div>
                   )}
                 </div>
               </CardContent>

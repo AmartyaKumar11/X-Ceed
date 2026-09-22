@@ -7,6 +7,7 @@ import {
   Play, Settings, Award, Target, ChevronDown, ChevronUp,
   RotateCcw, Send
 } from 'lucide-react';
+import { ShiningText } from '@/components/ui/shining-text';
 
 function QuizPageInner() {
   const searchParams = useSearchParams();
@@ -340,6 +341,11 @@ function QuizPageInner() {
                     </>
                   )}
                 </button>
+                {loading && (
+                  <div className="mt-3 text-center">
+                    <ShiningText text="AI is generating your quiz..." className="text-sm" />
+                  </div>
+                )}
                 
                 {questionTypes.length === 0 && (
                   <p className="text-sm text-red-500 mt-2 text-center">

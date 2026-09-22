@@ -17,6 +17,7 @@ import {
   Download,
   Star
 } from 'lucide-react';
+import { ShiningText } from "@/components/ui/shining-text";
 
 export default function CandidateShortlist({ jobId, jobTitle, jobDescription, jobRequirements, candidates }) {
   const [loading, setLoading] = useState(false);
@@ -123,7 +124,7 @@ export default function CandidateShortlist({ jobId, jobTitle, jobDescription, jo
               <div className="space-y-3">
                 <div className="flex items-center gap-2 text-sm text-gray-600">
                   <Clock className="w-4 h-4" />
-                  Processing candidates with AI...
+                  <ShiningText text="Processing candidates with AI..." className="text-sm" />
                 </div>
                 <Progress value={33} className="w-full" />
                 <p className="text-xs text-gray-500">

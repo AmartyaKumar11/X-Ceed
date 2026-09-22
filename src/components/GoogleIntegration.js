@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { FileText, FolderPlus, Upload, Search, ExternalLink, CheckCircle, AlertCircle, PenTool, Plus, X } from 'lucide-react';
+import { ShiningText } from '@/components/ui/shining-text';
 
 export default function GoogleIntegration({ videoTitle, videoChannel, videoId, notes }) {
   const [isLoading, setIsLoading] = useState(false);
@@ -473,8 +474,8 @@ export default function GoogleIntegration({ videoTitle, videoChannel, videoId, n
       </div>
 
       {isLoading && (
-        <div className="text-xs text-muted-foreground animate-pulse">
-          Processing... Please wait.
+        <div className="text-xs">
+          <ShiningText text="Processing... Please wait." className="text-xs" />
         </div>
       )}
     </div>

@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { ShiningText } from '@/components/ui/shining-text';
 
 const CLASSIFICATIONS = [
   { value: 'missing', label: 'Missing (fundamentals)' },
@@ -153,6 +154,9 @@ export default function CareerPlanPage() {
                 {loading ? 'Generating…' : 'Generate plan'}
               </Button>
             </div>
+            {loading && (
+              <ShiningText text="AI is generating your career plan..." className="text-sm" />
+            )}
             {error && <p className="text-sm text-destructive">{error}</p>}
           </CardContent>
         </Card>

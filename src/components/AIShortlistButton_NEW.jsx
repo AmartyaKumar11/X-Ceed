@@ -23,6 +23,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { ShiningText } from "@/components/ui/shining-text";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -178,7 +179,11 @@ const AIShortlistButton = ({ job, onShortlistComplete }) => {
               AI Candidate Analysis Results
             </DialogTitle>
             <DialogDescription>
-              {shortlistResults?.data?.summary || 'Analyzing candidates for the best matches...'}
+              {isAnalyzing && !shortlistResults?.data?.summary ? (
+                <ShiningText text="Analyzing candidates for the best matches..." className="text-sm" />
+              ) : (
+                shortlistResults?.data?.summary || 'Analyzing candidates for the best matches...'
+              )}
             </DialogDescription>
           </DialogHeader>
 

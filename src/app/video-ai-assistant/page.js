@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { Send, Loader2, Download, Scissors, Camera, FolderPlus, Bot, Video, MessageSquare, FileText, Clock, Play, ExternalLink, Pause, Square, SkipForward, Trash, Brain } from 'lucide-react';
 import TypingAnimation from '@/components/TypingAnimation';
 import GoogleIntegration from '@/components/GoogleIntegration';
+import { ShiningText } from '@/components/ui/shining-text';
 
 function VideoAIAssistantInner() {
   const searchParams = useSearchParams();
@@ -1259,7 +1260,7 @@ const quickActions = [
                 </div>
                 <div className="bg-muted text-foreground px-3 py-2 rounded-lg rounded-bl-sm border border-border flex items-center gap-2 text-sm">
                   <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-                  <span>AI is thinking...</span>
+                  <ShiningText text="AI is thinking..." className="text-sm" />
                 </div>
               </div>
             </div>

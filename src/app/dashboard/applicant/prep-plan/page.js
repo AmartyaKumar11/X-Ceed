@@ -35,6 +35,7 @@ import { Input } from "@/components/ui/input";
 import LearningPathPreview from "@/components/learning-path/LearningPathPreview";
 import PayoutCalculator from "@/components/gamification/PayoutCalculator";
 import { skillFilter } from "@/lib/skillFilter";
+import { ShiningText } from "@/components/ui/shining-text";
 
 function PrepPlanPageInner() {
   const router = useRouter();
@@ -1143,7 +1144,11 @@ function PrepPlanPageInner() {
             <CardContent className="flex flex-col items-center justify-center py-16">
               <Loader2 className="h-8 w-8 animate-spin text-primary mb-4" />
               <h3 className="text-lg font-medium mb-2">
-                {parsingJD ? 'Parsing Job Description with AI...' : 'Generating Your Prep Plan'}
+                <ShiningText
+                  as="span"
+                  text={parsingJD ? 'Parsing Job Description with AI...' : 'Generating Your Prep Plan'}
+                  className="text-lg font-medium"
+                />
               </h3>
               <p className="text-muted-foreground text-center">
                 {parsingJD 

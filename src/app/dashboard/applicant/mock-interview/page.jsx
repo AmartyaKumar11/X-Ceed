@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ShiningText } from "@/components/ui/shining-text";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
@@ -641,6 +642,15 @@ export default function MockInterviewPage() {
                   </div>
                 </CardContent>
               </Card>
+            </div>
+          )}
+
+          {isAnalyzing && (
+            <div className="absolute top-20 left-1/2 transform -translate-x-1/2 z-20">
+              <div className="bg-black/70 backdrop-blur-lg rounded-full px-5 py-2 flex items-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin text-white" />
+                <ShiningText text="AI is analyzing your answer..." className="text-sm" />
+              </div>
             </div>
           )}
 
