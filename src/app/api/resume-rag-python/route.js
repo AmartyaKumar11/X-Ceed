@@ -12,10 +12,16 @@ export async function POST(request) {
   console.log('🤖 Python RAG-Powered Resume Analysis API called');
   
   try {
-    const { authMiddleware } = await import('@/lib/middleware');
-    const auth = await authMiddleware(request);
-    if (!auth.isAuthenticated) {
-      return NextResponse.json({ success: false, message: auth.error || 'Authentication required' }, { status: auth.status || 401 });
+    let auth;
+    try {
+      const { authMiddleware } = await import('@/lib/middleware');
+      auth = await authMiddleware(request);
+    } catch (authErr) {
+      console.error('Auth middleware error:', authErr);
+      return NextResponse.json({ success: false, message: 'Authentication required' }, { status: 401 });
+    }
+    if (!auth?.isAuthenticated) {
+      return NextResponse.json({ success: false, message: auth?.error || 'Authentication required' }, { status: auth?.status || 401 });
     }
     const decoded = auth.user;
 
