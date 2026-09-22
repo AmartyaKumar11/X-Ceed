@@ -1,11 +1,9 @@
-/* Tech font import for the splash screen */
-@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&display=swap');
-@import url('https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@100;300;400;500;600;700&display=swap');
-
+/* Geist is loaded via layout; keep aliases for splash/legacy */
 .tech-font {
-  font-family: 'Orbitron', sans-serif;
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  letter-spacing: -0.02em;
 }
 
 .mono-font {
-  font-family: 'Roboto Mono', monospace;
+  font-family: var(--font-geist-mono), Menlo, monospace;
 }

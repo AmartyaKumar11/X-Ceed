@@ -78,22 +78,19 @@ export default function Sidebar({ role }) {
       />      {/* Sidebar */}
       <div
         ref={sidebarRef}
-        className={`sidebar fixed top-0 left-0 h-screen bg-sidebar/95 backdrop-blur-xl border-r border-sidebar-border shadow-2xl transition-all duration-300 ease-in-out z-50 ${
+        className={`sidebar glass fixed top-0 left-0 h-screen transition-all duration-300 ease-in-out z-50 overflow-hidden ${
           isOpen ? 'w-64 opacity-100' : 'w-0 opacity-0'
         }`}
-        style={{ 
-          backdropFilter: 'blur(20px) saturate(150%)',
-          WebkitBackdropFilter: 'blur(20px) saturate(150%)'
-        }}
-      >        <div className="h-16 border-b border-sidebar-border/50 flex items-center justify-between px-6 bg-sidebar-accent/10">
+      >        <div className="h-14 flex items-center justify-between px-5 shadow-[inset_0_-1px_0_0_hsl(var(--border)/0.4)]">
           <Link 
             href={role === 'applicant' ? '/dashboard/applicant' : '/dashboard/recruiter'} 
-            className="header-link text-xl font-bold text-sidebar-foreground hover:text-sidebar-primary transition-colors cursor-pointer flex-shrink-0"
+            className="header-link text-sm font-medium tracking-[-0.02em] text-sidebar-foreground hover:text-foreground transition-colors cursor-pointer flex-shrink-0 flex items-center gap-2"
             onClick={(e) => {
               e.stopPropagation();
               setIsOpen(false);
             }}
           >
+            <span className="vercel-gradient size-4 rounded-sm" aria-hidden />
             X-CEED
           </Link>
           <div className="header-controls flex items-center space-x-3 flex-shrink-0">
@@ -122,33 +119,33 @@ export default function Sidebar({ role }) {
                 {item.onClick ? (
                   <button 
                     onClick={item.onClick}
-                    className={`sidebar-item flex items-center px-4 py-3 text-sidebar-foreground hover:bg-sidebar-accent/20 hover:text-sidebar-accent-foreground cursor-pointer w-full text-left transition-all duration-200 rounded-lg group ${
-                      pathname === item.href ? 'active bg-sidebar-primary text-sidebar-primary-foreground shadow-md' : ''
+                    className={`sidebar-item flex items-center px-3 py-2 text-sm text-sidebar-foreground hover:bg-muted cursor-pointer w-full text-left transition-colors rounded-md group ${
+                      pathname === item.href ? 'text-vercel-blue shadow-[inset_2px_0_0_0_hsl(var(--vercel-blue))] bg-muted/50' : ''
                     }`}
                   >
-                    <span className="sidebar-icon mr-3 text-current group-hover:scale-110 transition-transform">{item.icon}</span>
+                    <span className="sidebar-icon mr-3 text-current">{item.icon}</span>
                     <span className="font-medium">{item.label}</span>
                   </button>
                 ) : (
                   <Link 
                     href={item.href} 
-                    className={`sidebar-item flex items-center px-4 py-3 text-sidebar-foreground hover:bg-sidebar-accent/20 hover:text-sidebar-accent-foreground cursor-pointer transition-all duration-200 rounded-lg group ${
-                      pathname === item.href ? 'active bg-sidebar-primary text-sidebar-primary-foreground shadow-md' : ''
+                    className={`sidebar-item flex items-center px-3 py-2 text-sm text-sidebar-foreground hover:bg-muted cursor-pointer transition-colors rounded-md group ${
+                      pathname === item.href ? 'text-vercel-blue shadow-[inset_2px_0_0_0_hsl(var(--vercel-blue))] bg-muted/50' : ''
                     }`}
                   >
-                    <span className="sidebar-icon mr-3 text-current group-hover:scale-110 transition-transform">{item.icon}</span>
+                    <span className="sidebar-icon mr-3 text-current">{item.icon}</span>
                     <span className="font-medium">{item.label}</span>
                   </Link>
                 )}
               </li>
             ))}
           </ul>
-        </div>        <div className="border-t border-sidebar-border/50 p-3 bg-sidebar-accent/5">
+        </div>        <div className="p-3 shadow-[inset_0_1px_0_0_hsl(var(--border)/0.4)]">
           <Link 
             href="/auth" 
-            className="sidebar-item flex items-center px-4 py-3 text-sidebar-foreground hover:bg-red-500/20 hover:text-red-400 cursor-pointer transition-all duration-200 rounded-lg group"
+            className="sidebar-item flex items-center px-3 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer transition-colors rounded-md group"
           >
-            <span className="sidebar-icon mr-3 text-current group-hover:scale-110 transition-transform"><LogOut size={18} /></span>
+            <span className="sidebar-icon mr-3 text-current"><LogOut size={18} /></span>
             <span className="font-medium">Sign out</span>
           </Link>
         </div>

@@ -261,42 +261,42 @@ export default function RecruiterDashboardPage() {
         {/* Application Status Analytics */}
         <ApplicationStatusCards />
         
-        {/* Basic Stats Cards */}      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+        {/* Basic Stats Cards */}              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
         <div 
-          className="bg-card text-card-foreground p-4 rounded-lg border shadow-md hover:shadow-lg transition-shadow cursor-pointer flex items-start" 
+          className="glass text-card-foreground p-6 rounded-md hover:shadow-lg transition-shadow cursor-pointer flex items-start" 
           onClick={() => router.push('/dashboard/recruiter/jobs')}
         >
-          <div className="p-2 rounded-full bg-primary/10 mr-3">
-            <Briefcase className="h-5 w-5 text-primary" />
+          <div className="p-2 rounded-md bg-muted mr-3">
+            <Briefcase className="h-5 w-5 text-muted-foreground" />
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-xs text-muted-foreground">Active Jobs</p>
-            <h3 className="text-xl font-bold text-card-foreground">{stats.activeJobs}</h3>
+            <h3 className="text-xl font-bold tracking-[-0.02em] text-card-foreground">{stats.activeJobs}</h3>
           </div>
         </div>
         
-        <div className="bg-card text-card-foreground p-4 rounded-lg border shadow-md hover:shadow-lg transition-shadow flex items-start">
-          <div className="p-2 rounded-full bg-purple-500/10 mr-3">
-            <FileCheck className="h-5 w-5 text-purple-500" />
+        <div className="glass text-card-foreground p-6 rounded-md hover:shadow-lg transition-shadow flex items-start">
+          <div className="p-2 rounded-md bg-muted mr-3">
+            <FileCheck className="h-5 w-5 text-muted-foreground" />
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-xs text-muted-foreground">Applications</p>
-            <h3 className="text-xl font-bold text-card-foreground">{stats.totalApplications}</h3>
+            <h3 className="text-xl font-bold tracking-[-0.02em] text-card-foreground">{stats.totalApplications}</h3>
           </div>        </div>
         
-        <div className="bg-card text-card-foreground p-4 rounded-lg border shadow-md hover:shadow-lg transition-shadow flex items-start">
-          <div className="p-2 rounded-full bg-rose-500/10 mr-3">
-            <PieChart className="h-5 w-5 text-rose-500" />
+        <div className="glass text-card-foreground p-6 rounded-md hover:shadow-lg transition-shadow flex items-start">
+          <div className="p-2 rounded-md bg-muted mr-3">
+            <PieChart className="h-5 w-5 text-muted-foreground" />
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-xs text-muted-foreground">Interviews</p>
-            <h3 className="text-xl font-bold text-card-foreground">{stats.interviews}</h3>
+            <h3 className="text-xl font-bold tracking-[-0.02em] text-card-foreground">{stats.interviews}</h3>
           </div>
         </div>
       </div>{/* Main Content Cards */}
       <div className="grid grid-cols-1 xl:grid-cols-4 gap-4">
         {/* Active Job Postings */}
-        <div className="xl:col-span-3 bg-card text-card-foreground p-4 rounded-lg border shadow-md">
+        <div className="xl:col-span-3 bg-card text-card-foreground p-6 rounded-md vercel-elevated">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold flex items-center text-card-foreground">
               <Briefcase className="h-5 w-5 mr-2 text-muted-foreground" />

@@ -38,7 +38,6 @@ const AIShortlistButton = ({ job, onShortlistComplete }) => {
       <Button
         onClick={handleAIShortlist}
         disabled={isAnalyzing}
-        className="flex items-center gap-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-medium border-0 rounded-lg shadow-lg hover:shadow-xl transition-all duration-200 focus:ring-2 focus:ring-blue-500 focus:outline-none"
       >
         <Brain className="h-4 w-4" />
         {isAnalyzing ? (
@@ -47,12 +46,7 @@ const AIShortlistButton = ({ job, onShortlistComplete }) => {
             Analyzing...
           </>
         ) : (
-          <>
-            AI Shortlist
-            <span className="text-xs bg-white/20 px-1.5 py-0.5 rounded text-white/90 ml-1">
-              Gemini
-            </span>
-          </>
+          <>AI Shortlist</>
         )}
       </Button>
       

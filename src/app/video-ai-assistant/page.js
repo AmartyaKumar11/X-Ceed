@@ -1033,22 +1033,22 @@ const quickActions = [
 
       {/* Right Panel - AI Chat */}
       <div 
-        className="flex flex-col bg-card transition-all duration-200 ease-out"
+        className="flex flex-col glass transition-all duration-200 ease-out"
         style={{ width: `${100 - leftPanelWidth}%` }}
       >{/* Header */}
-        <div className="px-6 py-5 border-b border-border bg-card">
+        <div className="px-6 py-5 shadow-[inset_0_-1px_0_0_hsl(var(--border)/0.4)]">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
-              <div className="p-3 bg-primary rounded-xl">
-                <Bot className="h-6 w-6 text-primary-foreground" />
+              <div className="p-2 bg-muted rounded-md">
+                <Bot className="h-5 w-5 text-foreground" />
               </div>
               <div>
-                <h1 className="text-xl font-bold text-foreground">AI Video Assistant</h1>
-                <p className="text-sm text-muted-foreground">Powered by Gemini AI</p>
+                <h1 className="text-xl font-semibold tracking-[-0.02em] text-foreground">AI Video Assistant</h1>
+                <p className="text-sm text-muted-foreground">Transcript-grounded notes & chat</p>
               </div>
             </div>            <button
               onClick={clearChatHistory}
-              className="px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors flex items-center gap-2"
+              className="px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-muted rounded-md transition-colors flex items-center gap-2"
               title="Clear chat history"
             >
               <Trash className="h-4 w-4" />
@@ -1056,7 +1056,7 @@ const quickActions = [
             </button>
           </div>
         </div>{/* Quick Actions */}
-        <div className="px-6 py-4 bg-muted/30 border-b border-border">
+        <div className="px-6 py-4 shadow-[inset_0_-1px_0_0_hsl(var(--border)/0.4)]">
           <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-3">Quick Actions</p>
           <div className="grid grid-cols-2 gap-2">            {quickActions.map((action, index) => (
               <button
