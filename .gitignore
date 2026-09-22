@@ -32,6 +32,7 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # vercel
 .vercel
@@ -199,3 +200,18 @@ node_modules
 
 # Hardhat Ignition default folder for deployments against a local node
 ignition/deployments/chain-31337
+
+
+# Phase 1 deploy bible
+_dev/
+*.pdf
+!docs/**/*.pdf
+bfg*.jar
+__pycache__/
+.venv/
+artifacts/
+cache/
+public/uploads/
+.env.local.backup
+.env.local.new
+.env.local.old
