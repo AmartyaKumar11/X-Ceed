@@ -6,7 +6,7 @@
   overflow-y: auto;
   padding-right: 2px;
   scrollbar-width: thin;
-  scrollbar-color: hsl(var(--muted-foreground) / 0.3) transparent;
+  scrollbar-color: color-mix(in srgb, var(--muted-foreground) 30%, transparent) transparent;
 }
 
 .job-cards-container::-webkit-scrollbar {
@@ -18,20 +18,20 @@
 }
 
 .job-cards-container::-webkit-scrollbar-thumb {
-  background-color: hsl(var(--muted-foreground) / 0.3);
+  background-color: color-mix(in srgb, var(--muted-foreground) 30%, transparent);
   border-radius: 20px;
 }
 
 /* Job card hover effect */
 .job-card {
   transition: all 0.2s ease;
-  border: 1px solid hsl(var(--border));
+  border: 1px solid var(--border);
 }
 
 .job-card:hover {
   transform: translateY(-2px);
-  box-shadow: 0 10px 15px -3px hsl(var(--border) / 0.1), 0 4px 6px -2px hsl(var(--border) / 0.05);
-  border-color: hsl(var(--border));
+  box-shadow: 0 10px 15px -3px color-mix(in srgb, var(--border) 10%, transparent), 0 4px 6px -2px color-mix(in srgb, var(--border) 5%, transparent);
+  border-color: var(--border);
 }
 
 /* Dialog content styling */
@@ -47,7 +47,7 @@
 }
 
 .resume-upload-area:hover {
-  border-color: hsl(var(--primary));
+  border-color: var(--primary);
 }
 
 /* Match resume button hover effect */
@@ -56,7 +56,7 @@
 }
 
 .match-button:hover {
-  background-color: hsl(var(--muted));
+  background-color: var(--muted);
 }
 
 /* Filter tags styling */
@@ -66,10 +66,10 @@
 }
 
 .filter-tag:hover {
-  background-color: hsl(var(--muted));
+  background-color: var(--muted);
 }
 
 .filter-tag.active {
-  background-color: hsl(var(--primary));
-  color: hsl(var(--primary-foreground));
+  background-color: var(--primary);
+  color: var(--primary-foreground);
 }

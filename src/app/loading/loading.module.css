@@ -1,19 +1,20 @@
-
 .container {
   display: flex;
   align-items: center;
   justify-content: center;
   height: 100vh;
   width: 100vw;
-  background-color: white;
-  color: black;
+  background-color: var(--background);
+  color: var(--foreground);
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
   bottom: 0;
   z-index: 9999;
-  transition: transform 0.6s cubic-bezier(0.17, 0.67, 0.83, 0.67);
+  transition: transform 0.6s cubic-bezier(0.17, 0.67, 0.83, 0.67),
+    background-color 0.3s ease,
+    color 0.3s ease;
   overflow: hidden;
 }
 
@@ -43,10 +44,11 @@
   display: inline-block;
   width: 4px;
   height: 1.2em;
-  background-color: #000;
+  background-color: var(--foreground);
   margin-left: 2px;
   animation: blink 1s step-end infinite;
   vertical-align: text-bottom;
+  transition: background-color 0.3s ease;
 }
 
 .cursorHidden {
@@ -57,10 +59,11 @@
   margin-top: 1rem;
   font-size: 1.125rem;
   font-weight: 400;
-  color: #00f6ff;
+  color: var(--vercel-blue);
   opacity: 0;
   animation: fadeIn 1s forwards;
-  animation-delay: 0.5s; /* Delay the tagline appearance for better sequence */
+  animation-delay: 0.5s;
+  transition: color 0.3s ease;
 }
 
 @keyframes blink {
@@ -83,27 +86,12 @@
   100% { text-shadow: -0.025em 0 0 rgba(255, 0, 0, 0.75), -0.025em -0.025em 0 rgba(0, 255, 0, 0.75), -0.025em -0.05em 0 rgba(0, 0, 255, 0.75); }
 }
 
-/* Responsive adjustments */
 @media (max-width: 640px) {
   .title {
-    font-size: 3rem;
+    font-size: 2.5rem;
   }
-  
+
   .tagline {
     font-size: 1rem;
   }
-}
-
-/* Dark mode disabled — light only */
-:global(.dark) .container {
-  background-color: white;
-  color: black;
-}
-
-:global(.dark) .cursor {
-  background-color: #000;
-}
-
-:global(.dark) .tagline {
-  color: #00f6ff;
 }

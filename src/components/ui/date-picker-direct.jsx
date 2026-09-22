@@ -39,13 +39,13 @@ export function DatePickerDirect({ className, selected, onSelect }) {
       </Button>
       
       {isOpen && (
-        <div className="absolute top-full left-0 z-[999] mt-1 rounded-md border bg-white p-3 shadow-md">
+        <div className="absolute top-full left-0 z-[999] mt-1 rounded-md border bg-background p-3 shadow-md">
           <DayPicker
             mode="single"
             selected={date}
             onSelect={handleSelect}
             showOutsideDays={true}
-            className="bg-white"
+            className="bg-background"
             classNames={{
               months: "flex flex-col sm:flex-row space-y-4 sm:space-x-4 sm:space-y-0",
               month: "space-y-4",

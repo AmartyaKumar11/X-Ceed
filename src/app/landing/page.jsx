@@ -145,7 +145,7 @@ function RotatingWords() {
       <AnimatePresence mode="wait">
         <motion.span
           key={ROTATING[i]}
-          className="col-start-1 row-start-1 inline-block whitespace-nowrap text-zinc-900"
+          className="col-start-1 row-start-1 inline-block whitespace-nowrap text-foreground"
           initial={{ opacity: 0, y: 20, filter: "blur(8px)" }}
           animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
           exit={{ opacity: 0, y: -20, filter: "blur(8px)" }}
@@ -165,7 +165,7 @@ function BentoCard({ tile }) {
   return (
     <motion.article
       variants={bentoItem}
-      className="bento-card group relative flex h-full flex-col overflow-hidden rounded-md bg-zinc-50"
+      className="bento-card group relative flex h-full flex-col overflow-hidden rounded-md bg-muted"
       onMouseMove={(e) => {
         const rect = e.currentTarget.getBoundingClientRect();
         setMouse({ x: e.clientX - rect.left, y: e.clientY - rect.top });
@@ -184,8 +184,8 @@ function BentoCard({ tile }) {
         <tile.Mock />
       </div>
       <div className="relative z-0 mt-auto p-5 pt-4">
-        <h3 className="text-[15px] font-semibold tracking-[-0.02em] text-zinc-900">{tile.title}</h3>
-        <p className="mt-1.5 text-sm text-zinc-500 leading-relaxed">{tile.desc}</p>
+        <h3 className="text-[15px] font-semibold tracking-[-0.02em] text-foreground">{tile.title}</h3>
+        <p className="mt-1.5 text-sm text-muted-foreground leading-relaxed">{tile.desc}</p>
       </div>
     </motion.article>
   );
@@ -195,9 +195,9 @@ function LogoMarquee() {
   const logos = [...BUILT_WITH, ...BUILT_WITH];
   return (
     <div className="relative overflow-hidden">
-      <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-16 bg-gradient-to-r from-black to-transparent" />
-      <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-16 bg-gradient-to-l from-black to-transparent" />
-      <div className="logo-marquee-track py-1 text-zinc-900">
+      <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-16 logo-marquee-fade" />
+      <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-16 logo-marquee-fade logo-marquee-fade--right" />
+      <div className="logo-marquee-track py-1 text-foreground">
         {logos.map(({ name, Logo }, i) => (
           <Logo
             key={`${name}-${i}`}
@@ -223,20 +223,20 @@ function PipelineSection() {
   useMotionValueEvent(lineProgress, "change", (v) => setLineW(v));
 
   return (
-    <section id="pipeline" ref={ref} className="relative border-t border-zinc-200 py-24 md:py-32">
+    <section id="pipeline" ref={ref} className="relative border-t border-border py-24 md:py-32">
       <div className="mx-auto max-w-7xl px-6">
         <SectionReveal>
-          <p className="text-xs font-medium uppercase tracking-[0.14em] text-zinc-500">Infrastructure</p>
-          <h2 className="mt-3 max-w-2xl text-3xl font-semibold tracking-[-0.03em] text-zinc-900 md:text-4xl">
+          <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">Infrastructure</p>
+          <h2 className="mt-3 max-w-2xl text-3xl font-semibold tracking-[-0.03em] text-foreground md:text-4xl">
             Multi-agentic LangGraph pipeline
           </h2>
-          <p className="mt-4 max-w-xl text-base text-zinc-500 leading-relaxed">
+          <p className="mt-4 max-w-xl text-base text-muted-foreground leading-relaxed">
             System-1 decisions on Jev. System-2 narratives on DeepSeek. Scroll to walk the graph.
           </p>
         </SectionReveal>
 
         <div className="relative mt-14">
-          <div className="absolute left-4 right-4 top-[22px] hidden h-px bg-zinc-100 md:block" />
+          <div className="absolute left-4 right-4 top-[22px] hidden h-px bg-muted md:block" />
           <div
             className="absolute left-4 top-[22px] hidden h-px origin-left bg-[#0070F3] transition-[width] duration-150 md:block"
             style={{
@@ -257,7 +257,7 @@ function PipelineSection() {
                     scale: isActive ? 1.02 : 1,
                   }}
                   transition={{ duration: 0.35, ease: EASE }}
-                  className={`relative rounded-md bg-zinc-50 p-5 ${
+                  className={`relative rounded-md bg-muted p-5 ${
                     isActive
                       ? "shadow-[0_0_0_1px_rgba(0,112,243,0.7),0_0_24px_2px_rgba(0,112,243,0.15)]"
                       : "shadow-[0_0_0_1px_#222]"
@@ -265,10 +265,10 @@ function PipelineSection() {
                 >
                   <div
                     className={`mb-4 size-3 rounded-full transition-colors ${
-                      passed ? "bg-[#0070F3]" : "bg-white/20"
+                      passed ? "bg-[#0070F3]" : "bg-foreground/20"
                     }`}
                   />
-                  <p className="text-sm font-semibold tracking-[-0.02em] text-zinc-900">{node.label}</p>
+                  <p className="text-sm font-semibold tracking-[-0.02em] text-foreground">{node.label}</p>
                   <p className="mt-1 text-xs text-[#0070F3]">{node.model}</p>
                   <AnimatePresence mode="wait">
                     {isActive && (
@@ -278,14 +278,14 @@ function PipelineSection() {
                         animate={{ opacity: 1, height: "auto" }}
                         exit={{ opacity: 0, height: 0 }}
                         transition={{ duration: 0.3, ease: EASE }}
-                        className="mt-2 overflow-hidden text-xs text-zinc-500 leading-relaxed"
+                        className="mt-2 overflow-hidden text-xs text-muted-foreground leading-relaxed"
                       >
                         {node.detail}
                       </motion.p>
                     )}
                   </AnimatePresence>
                   {!isActive && (
-                    <p className="mt-2 text-xs text-zinc-900/35 leading-relaxed">{node.detail}</p>
+                    <p className="mt-2 text-xs text-muted-foreground/70 leading-relaxed">{node.detail}</p>
                   )}
                 </motion.div>
               );
@@ -331,14 +331,14 @@ export default function LandingPage() {
   };
 
   return (
-    <div className="page-grain min-h-screen bg-white text-zinc-900 font-sans antialiased">
+    <div className="page-grain min-h-screen bg-background text-foreground font-sans antialiased">
       {/* Nav — hide on scroll down, glass after hero */}
       <motion.header
         animate={{ y: navVisible ? 0 : -80 }}
         transition={{ duration: 0.3, ease: EASE }}
         className={`fixed top-0 z-50 w-full transition-colors duration-300 ${
           isScrolled
-            ? "border-b border-zinc-200 bg-white/80 backdrop-blur-xl"
+            ? "border-b border-border bg-background/80 backdrop-blur-xl"
             : "border-b border-transparent bg-transparent"
         }`}
       >
@@ -347,23 +347,23 @@ export default function LandingPage() {
             <span className="vercel-gradient size-5 rounded-[4px]" aria-hidden />
             <span className="text-sm font-medium tracking-[-0.02em]">X-CEED</span>
           </a>
-          <nav className="hidden items-center gap-7 text-sm font-medium text-zinc-500 md:flex">
-            <a href="#features" className="hover:text-zinc-900 transition-colors">Features</a>
-            <a href="#how" className="hover:text-zinc-900 transition-colors">How it works</a>
-            <a href="#pipeline" className="hover:text-zinc-900 transition-colors">Pipeline</a>
-            <a href="#roles" className="hover:text-zinc-900 transition-colors">Roles</a>
+          <nav className="hidden items-center gap-7 text-sm font-medium text-muted-foreground md:flex">
+            <a href="#features" className="hover:text-foreground transition-colors">Features</a>
+            <a href="#how" className="hover:text-foreground transition-colors">How it works</a>
+            <a href="#pipeline" className="hover:text-foreground transition-colors">Pipeline</a>
+            <a href="#roles" className="hover:text-foreground transition-colors">Roles</a>
           </nav>
           <div className="flex items-center gap-2">
             <DarkModeToggle />
             <Button
               size="sm"
               variant="ghost"
-              className="text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100"
+              className="text-muted-foreground hover:text-foreground hover:bg-muted"
               onClick={() => router.push("/auth")}
             >
               Sign in
             </Button>
-            <Button size="sm" className="bg-zinc-900 text-white hover:bg-zinc-800" onClick={() => router.push("/auth")}>
+            <Button size="sm" className="bg-primary text-primary-foreground hover:bg-primary/90" onClick={() => router.push("/auth")}>
               Get Started
             </Button>
           </div>
@@ -388,7 +388,7 @@ export default function LandingPage() {
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.08, ease: EASE }}
-            className="mx-auto mt-6 max-w-2xl text-base text-zinc-500 leading-relaxed tracking-[-0.01em] md:text-lg"
+            className="mx-auto mt-6 max-w-2xl text-base text-muted-foreground leading-relaxed tracking-[-0.01em] md:text-lg"
           >
             Multi-agentic pipelines that analyze, match, and develop talent — not keyword filters.
           </motion.p>
@@ -400,7 +400,7 @@ export default function LandingPage() {
           >
             <Button
               size="lg"
-              className="h-11 bg-zinc-900 px-7 text-white hover:bg-zinc-800"
+              className="h-11 bg-primary px-7 text-primary-foreground hover:bg-primary/90"
               onClick={() => router.push("/auth")}
             >
               Get Started
@@ -409,7 +409,7 @@ export default function LandingPage() {
             <Button
               size="lg"
               variant="ghost"
-              className="h-11 px-7 text-zinc-900/80 hover:bg-zinc-100 hover:text-zinc-900 shadow-[0_0_0_1px_#e4e4e7]"
+              className="h-11 px-7 text-foreground/80 hover:bg-muted hover:text-foreground shadow-[0_0_0_1px_var(--border)]"
               onClick={() => document.getElementById("how")?.scrollIntoView({ behavior: "smooth" })}
             >
               See How It Works
@@ -425,10 +425,10 @@ export default function LandingPage() {
       </section>
 
       {/* 2. SOCIAL PROOF — marquee */}
-      <section className="border-y border-zinc-200 py-10">
+      <section className="border-y border-border py-10">
         <div className="mx-auto max-w-7xl px-6">
           <SectionReveal>
-            <p className="mb-6 text-center text-xs font-medium uppercase tracking-[0.16em] text-zinc-900/35">
+            <p className="mb-6 text-center text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground/70">
               Built with
             </p>
             <LogoMarquee />
@@ -440,7 +440,7 @@ export default function LandingPage() {
       <section id="features" className="py-24 md:py-32">
         <div className="mx-auto max-w-7xl px-6">
           <SectionReveal>
-            <p className="text-xs font-medium uppercase tracking-[0.14em] text-zinc-500">Product</p>
+            <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">Product</p>
             <h2 className="mt-3 max-w-2xl text-3xl font-semibold tracking-[-0.03em] md:text-4xl">
               Everything in one intelligence layer
             </h2>
@@ -461,10 +461,10 @@ export default function LandingPage() {
       </section>
 
       {/* 4. HOW IT WORKS */}
-      <section id="how" className="border-t border-zinc-200 py-24 md:py-32">
+      <section id="how" className="border-t border-border py-24 md:py-32">
         <div className="mx-auto max-w-7xl px-6">
           <SectionReveal>
-            <p className="text-xs font-medium uppercase tracking-[0.14em] text-zinc-500">Workflow</p>
+            <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">Workflow</p>
             <h2 className="mt-3 text-3xl font-semibold tracking-[-0.03em] md:text-4xl">
               How it works
             </h2>
@@ -497,13 +497,13 @@ export default function LandingPage() {
                 <SectionReveal key={step.n}>
                   <div className="relative">
                     <div
-                      className="step-icon mb-5 flex size-10 items-center justify-center rounded-full bg-zinc-50 text-xs font-medium text-[#0070F3]"
+                      className="step-icon mb-5 flex size-10 items-center justify-center rounded-full bg-muted text-xs font-medium text-[#0070F3]"
                       style={{ animationDelay: `${i * 0.4}s` }}
                     >
                       {step.n}
                     </div>
                     <h3 className="text-lg font-semibold tracking-[-0.02em]">{step.title}</h3>
-                    <p className="mt-2 text-sm text-zinc-500 leading-relaxed">{step.body}</p>
+                    <p className="mt-2 text-sm text-muted-foreground leading-relaxed">{step.body}</p>
                   </div>
                 </SectionReveal>
               ))}
@@ -516,7 +516,7 @@ export default function LandingPage() {
       <PipelineSection />
 
       {/* 6. ROLES — blue command center vs violet launchpad */}
-      <section id="roles" className="border-t border-zinc-200 py-24 md:py-32">
+      <section id="roles" className="border-t border-border py-24 md:py-32">
         <div className="mx-auto max-w-7xl px-6">
           <div className="relative flex flex-col gap-4 md:flex-row md:gap-0">
             <motion.div
@@ -537,13 +537,13 @@ export default function LandingPage() {
                 <div className="role-icon--blue flex size-14 items-center justify-center rounded-lg">
                   <LayoutDashboard className="size-10" strokeWidth={1.5} />
                 </div>
-                <h2 className="mt-6 text-2xl font-semibold tracking-[-0.03em] text-zinc-900">
+                <h2 className="mt-6 text-2xl font-semibold tracking-[-0.03em] text-foreground">
                   For Recruiters
                 </h2>
-                <p className="mt-2 text-sm text-zinc-500">
+                <p className="mt-2 text-sm text-muted-foreground">
                   Configurable weights, AI shortlists, and outreach that cite evidence.
                 </p>
-                <ul className="mt-8 flex flex-col gap-3 text-sm text-zinc-600">
+                <ul className="mt-8 flex flex-col gap-3 text-sm text-muted-foreground">
                   {[
                     "Weight skills, experience, education, projects, communication",
                     "AI Core shortlist with live match scores",
@@ -558,7 +558,7 @@ export default function LandingPage() {
                 </ul>
                 <button
                   type="button"
-                  className="mt-8 inline-flex h-11 items-center justify-center gap-2 self-start rounded-md border border-zinc-200 bg-zinc-100 px-5 text-sm font-medium text-zinc-900 backdrop-blur transition-colors hover:bg-zinc-200 md:mt-auto"
+                  className="mt-8 inline-flex h-11 items-center justify-center gap-2 self-start rounded-md border border-border bg-muted px-5 text-sm font-medium text-foreground backdrop-blur transition-colors hover:bg-muted md:mt-auto"
                   onClick={() => router.push("/auth")}
                 >
                   Hire with X-CEED
@@ -572,10 +572,10 @@ export default function LandingPage() {
               className="relative hidden w-8 shrink-0 self-stretch md:block"
               aria-hidden
             >
-              <div className="absolute inset-y-10 left-1/2 w-px -translate-x-1/2 bg-gradient-to-b from-transparent via-zinc-300 to-transparent" />
+              <div className="absolute inset-y-10 left-1/2 w-px -translate-x-1/2 bg-gradient-to-b from-transparent via-border to-transparent" />
             </div>
             <div
-              className="mx-2 h-px w-auto bg-gradient-to-r from-transparent via-zinc-300 to-transparent md:hidden"
+              className="mx-2 h-px w-auto bg-gradient-to-r from-transparent via-border to-transparent md:hidden"
               aria-hidden
             />
 
@@ -597,13 +597,13 @@ export default function LandingPage() {
                 <div className="role-icon--violet flex size-14 items-center justify-center rounded-lg">
                   <Rocket className="size-10" strokeWidth={1.5} />
                 </div>
-                <h2 className="mt-6 text-2xl font-semibold tracking-[-0.03em] text-zinc-900">
+                <h2 className="mt-6 text-2xl font-semibold tracking-[-0.03em] text-foreground">
                   For Candidates
                 </h2>
-                <p className="mt-2 text-sm text-zinc-500">
+                <p className="mt-2 text-sm text-muted-foreground">
                   Career plans, mock interviews, quizzes, and on-chain learning bets.
                 </p>
-                <ul className="mt-8 flex flex-col gap-3 text-sm text-zinc-600">
+                <ul className="mt-8 flex flex-col gap-3 text-sm text-muted-foreground">
                   {[
                     "Per-gap YouTube courses + study sequencing",
                     "Adaptive mock interviews with live feedback",
@@ -618,7 +618,7 @@ export default function LandingPage() {
                 </ul>
                 <button
                   type="button"
-                  className="mt-8 inline-flex h-11 items-center justify-center gap-2 self-start rounded-md border border-zinc-200 bg-zinc-100 px-5 text-sm font-medium text-zinc-900 backdrop-blur transition-colors hover:border-[rgba(121,40,202,0.35)] hover:bg-[rgba(121,40,202,0.2)] md:mt-auto"
+                  className="mt-8 inline-flex h-11 items-center justify-center gap-2 self-start rounded-md border border-border bg-muted px-5 text-sm font-medium text-foreground backdrop-blur transition-colors hover:border-[rgba(121,40,202,0.35)] hover:bg-[rgba(121,40,202,0.2)] md:mt-auto"
                   onClick={() => router.push("/auth")}
                 >
                   Build your career
@@ -631,13 +631,13 @@ export default function LandingPage() {
       </section>
 
       {/* 7. CTA */}
-      <section id="cta" className="border-t border-zinc-200 py-24 md:py-32">
+      <section id="cta" className="border-t border-border py-24 md:py-32">
         <div className="mx-auto max-w-xl px-6 text-center">
           <SectionReveal>
             <h2 className="text-3xl font-semibold tracking-[-0.035em] md:text-5xl">
               Start Building Better Careers
             </h2>
-            <p className="mt-4 text-zinc-500">
+            <p className="mt-4 text-muted-foreground">
               Create an account — pick your role and jump straight into the pipeline.
             </p>
             <form onSubmit={submitCta} className="mt-10 space-y-3 text-left">
@@ -647,15 +647,15 @@ export default function LandingPage() {
                 placeholder="you@company.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="h-11 border-0 bg-zinc-50 text-zinc-900 placeholder:text-zinc-400 shadow-[0_0_0_1px_#e4e4e7] focus-visible:ring-[#0070F3]"
+                className="h-11 border-0 bg-muted text-foreground placeholder:text-muted-foreground shadow-[0_0_0_1px_var(--border)] focus-visible:ring-[#0070F3]"
               />
               <select
                 value={role}
                 onChange={(e) => setRole(e.target.value)}
-                className="flex h-11 w-full rounded-md bg-zinc-50 px-3 text-sm text-zinc-900 shadow-[0_0_0_1px_#e4e4e7] outline-none focus-visible:ring-2 focus-visible:ring-[#0070F3]"
+                className="flex h-11 w-full rounded-md bg-muted px-3 text-sm text-foreground shadow-[0_0_0_1px_var(--border)] outline-none focus-visible:ring-2 focus-visible:ring-[#0070F3]"
               >
-                <option value="applicant" className="bg-white">Applicant / Candidate</option>
-                <option value="recruiter" className="bg-white">Recruiter</option>
+                <option value="applicant" className="bg-card">Applicant / Candidate</option>
+                <option value="recruiter" className="bg-card">Recruiter</option>
               </select>
               <button type="submit" className="gradient-border-btn">
                 Continue
@@ -667,31 +667,31 @@ export default function LandingPage() {
       </section>
 
       {/* 8. FOOTER */}
-      <footer className="border-t border-zinc-200 py-10">
+      <footer className="border-t border-border py-10">
         <div className="mx-auto flex max-w-7xl flex-col gap-6 px-6 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2">
             <span className="vercel-gradient size-4 rounded-[3px]" aria-hidden />
             <span className="text-sm font-medium tracking-[-0.02em]">X-CEED</span>
           </div>
-          <div className="flex flex-wrap items-center gap-5 text-sm text-zinc-500">
+          <div className="flex flex-wrap items-center gap-5 text-sm text-muted-foreground">
             <a
               href="https://github.com/AmartyaKumar11/X-Ceed"
               target="_blank"
               rel="noreferrer"
-              className="inline-flex items-center gap-1.5 hover:text-zinc-900 transition-colors"
+              className="inline-flex items-center gap-1.5 hover:text-foreground transition-colors"
             >
               <Github className="size-3.5" /> GitHub
             </a>
-            <a href="/landing" className="inline-flex items-center gap-1.5 hover:text-zinc-900 transition-colors">
+            <a href="/landing" className="inline-flex items-center gap-1.5 hover:text-foreground transition-colors">
               <BookOpen className="size-3.5" /> Docs
             </a>
             <a
               href="mailto:hello@x-ceed.dev"
-              className="inline-flex items-center gap-1.5 hover:text-zinc-900 transition-colors"
+              className="inline-flex items-center gap-1.5 hover:text-foreground transition-colors"
             >
               <Mail className="size-3.5" /> Contact
             </a>
-            <span className="inline-flex items-center gap-1.5 text-zinc-400">
+            <span className="inline-flex items-center gap-1.5 text-muted-foreground">
               <Shield className="size-3.5" /> EduChain-ready
             </span>
           </div>

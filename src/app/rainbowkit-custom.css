@@ -1,58 +1,36 @@
-/* Custom RainbowKit styling to match claymorphism theme */
+/* RainbowKit — use theme tokens directly (already hsl(...)) */
 
-/* Override RainbowKit modal background */
 [data-rk] .iekbcc0 {
-  background: hsl(var(--background)) !important;
-  border: 1px solid hsl(var(--border)) !important;
+  background: var(--background) !important;
+  border: 1px solid var(--border) !important;
   box-shadow: var(--shadow-lg) !important;
   border-radius: var(--radius) !important;
+  transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
 }
 
-/* Override RainbowKit text colors */
 [data-rk] .ju367v9 {
-  color: hsl(var(--foreground)) !important;
+  color: var(--foreground) !important;
 }
 
-/* Override RainbowKit button styles */
 [data-rk] button {
   border-radius: var(--radius) !important;
   font-family: var(--font-sans) !important;
 }
 
-/* Match wallet option styles */
 [data-rk] .g5kl0l0 {
-  background: hsl(var(--card)) !important;
-  border: 1px solid hsl(var(--border)) !important;
+  background: var(--card) !important;
+  border: 1px solid var(--border) !important;
   border-radius: var(--radius) !important;
+  transition: background-color 0.3s ease, border-color 0.3s ease;
 }
 
 [data-rk] .g5kl0l0:hover {
-  background: hsl(var(--accent)) !important;
+  background: var(--accent) !important;
 }
 
-/* Match the main connect button */
 [data-rk] .iekbcc0._12cbo8i3._1vwt0cg2._16pcg09p._1iq5x43k {
-  background: hsl(var(--primary)) !important;
-  color: hsl(var(--primary-foreground)) !important;
+  background: var(--primary) !important;
+  color: var(--primary-foreground) !important;
   border-radius: var(--radius) !important;
   box-shadow: var(--shadow) !important;
-}
-
-/* Dark mode specific overrides */
-.dark [data-rk] .iekbcc0 {
-  background: hsl(var(--background)) !important;
-  border-color: hsl(var(--border)) !important;
-}
-
-.dark [data-rk] .ju367v9 {
-  color: hsl(var(--foreground)) !important;
-}
-
-.dark [data-rk] .g5kl0l0 {
-  background: hsl(var(--card)) !important;
-  border-color: hsl(var(--border)) !important;
-}
-
-.dark [data-rk] .g5kl0l0:hover {
-  background: hsl(var(--accent)) !important;
 }

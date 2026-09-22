@@ -1,30 +1,61 @@
 'use client';
 
-/**
- * Theme is locked to light across the product.
- * Kept as a presentational control so existing call sites don't break.
- */
+import { useTheme } from 'next-themes';
+import { Toggle } from '@/components/ui/toggle';
+import { useEffect, useState, useCallback } from 'react';
+import { Sun, Moon } from 'lucide-react';
+
+function withThemeTransition(apply) {
+  const root = document.documentElement;
+  root.classList.add('theme-transition');
+  apply();
+  window.setTimeout(() => root.classList.remove('theme-transition'), 320);
+}
+
 export default function DarkModeToggle() {
+  const { setTheme, resolvedTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const isDark = resolvedTheme === 'dark';
+
+  const handleToggle = useCallback(
+    (pressed) => {
+      withThemeTransition(() => setTheme(pressed ? 'dark' : 'light'));
+    },
+    [setTheme]
+  );
+
+  if (!mounted) {
+    return <div className="h-10 w-10 rounded-full bg-muted animate-pulse" aria-hidden />;
+  }
+
   return (
-    <div
-      className="flex h-10 w-10 items-center justify-center rounded-full bg-muted text-foreground"
-      aria-label="Light mode"
-      title="Light mode"
+    <Toggle
+      pressed={isDark}
+      onPressedChange={handleToggle}
+      size="lg"
+      className="h-10 w-10 rounded-full bg-muted hover:bg-muted/80 transition-all duration-300 ease-in-out group data-[state=on]:bg-muted"
+      aria-label={`Switch to ${isDark ? 'light' : 'dark'} mode`}
+      title={`Switch to ${isDark ? 'light' : 'dark'} mode`}
+      onClick={(e) => e.stopPropagation()}
     >
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        className="h-5 w-5"
-        aria-hidden
+      <div
+        className="transition-transform duration-500 ease-in-out group-hover:scale-110"
+        style={{
+          transform: isDark ? 'rotate(180deg)' : 'rotate(0deg)',
+          transition: 'transform 0.5s ease-in-out',
+        }}
       >
-        <circle cx="12" cy="12" r="4" />
-        <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
-      </svg>
-    </div>
+        {isDark ? (
+          <Moon className="h-5 w-5 text-foreground" />
+        ) : (
+          <Sun className="h-5 w-5 text-foreground" />
+        )}
+      </div>
+    </Toggle>
   );
 }
