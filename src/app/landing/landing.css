@@ -65,8 +65,8 @@ html {
 .logo-marquee-track {
   display: flex;
   width: max-content;
-  gap: 3rem;
-  animation: logo-marquee 28s linear infinite;
+  gap: 2.75rem;
+  animation: logo-marquee 48s linear infinite;
 }
 
 .logo-marquee-track:hover {
