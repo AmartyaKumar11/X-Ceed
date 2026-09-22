@@ -380,8 +380,19 @@ async function stage3(token) {
       r = await req(`${WEB}/api/jobs`, { token });
       jobs = r.json?.data || [];
     }
-    const picked = jobs[0];
+    // Prefer recruiter-posted tech roles for pipeline smoke; aggregated JDs vary widely
+    const picked =
+      jobs.find((j) => (j.source || 'recruiter') === 'recruiter') ||
+      jobs.find((j) => /engineer|developer|software|full.?stack/i.test(j.title || '')) ||
+      jobs[0];
     if (picked) {
+      const rawReqs =
+        Array.isArray(picked.requirements) && picked.requirements.length
+          ? picked.requirements
+          : FALLBACK_JOB.requirements;
+      const requirements = rawReqs.map((x) =>
+        typeof x === 'string' ? x : x?.description || x?.name || String(x)
+      );
       job = {
         _id: picked._id,
         title: picked.title || FALLBACK_JOB.title,
@@ -390,10 +401,9 @@ async function stage3(token) {
           picked.description ||
           picked.jobDescriptionText ||
           FALLBACK_JOB.description,
-        requirements: Array.isArray(picked.requirements) && picked.requirements.length
-          ? picked.requirements
-          : FALLBACK_JOB.requirements,
+        requirements,
         evaluationWeights: picked.evaluationWeights || FALLBACK_JOB.evaluationWeights,
+        source: picked.source || 'recruiter',
       };
       if ((job.description || "").length < 80) {
         job.description = FALLBACK_JOB.description;
