@@ -558,7 +558,7 @@ export default function LandingPage() {
                 </ul>
                 <button
                   type="button"
-                  className="mt-8 inline-flex h-11 items-center justify-center gap-2 self-start rounded-md border border-white/10 bg-white/10 px-5 text-sm font-medium text-white backdrop-blur transition-colors hover:bg-white/20 md:mt-auto md:pt-8"
+                  className="mt-8 inline-flex h-11 items-center justify-center gap-2 self-start rounded-md border border-white/10 bg-white/10 px-5 text-sm font-medium text-white backdrop-blur transition-colors hover:bg-white/20 md:mt-auto"
                   onClick={() => router.push("/auth")}
                 >
                   Hire with X-CEED
@@ -618,7 +618,7 @@ export default function LandingPage() {
                 </ul>
                 <button
                   type="button"
-                  className="mt-8 inline-flex h-11 items-center justify-center gap-2 self-start rounded-md border border-white/10 bg-white/10 px-5 text-sm font-medium text-white backdrop-blur transition-colors hover:border-[rgba(121,40,202,0.35)] hover:bg-[rgba(121,40,202,0.2)] md:mt-auto md:pt-8"
+                  className="mt-8 inline-flex h-11 items-center justify-center gap-2 self-start rounded-md border border-white/10 bg-white/10 px-5 text-sm font-medium text-white backdrop-blur transition-colors hover:border-[rgba(121,40,202,0.35)] hover:bg-[rgba(121,40,202,0.2)] md:mt-auto"
                   onClick={() => router.push("/auth")}
                 >
                   Build your career
