@@ -10,6 +10,7 @@ type Query {
   candidateProfile: CandidateProfile!
   jobWithCandidates(jobId: ID!): JobWithCandidates!
   matchResult(applicationId: ID!): MatchResult!
+  jobs(limit: Int, source: String): [Job!]!
 }
 
 type RecruiterDashboard {
@@ -39,6 +40,17 @@ type JobWithCandidates {
   job: Job!
   candidates: [RankedCandidate!]!
   weights: EvaluationWeights!
+}
+
+type Requirement {
+  description: String!
+  priority: String!
+}
+
+type SalaryRange {
+  min: Int
+  max: Int
+  currency: String!
 }
 
 type RankedCandidate {
@@ -126,13 +138,18 @@ type Job {
   title: String!
   company: String!
   description: String!
-  requirements: [String!]!
+  requirements: [Requirement!]!
   evaluationWeights: EvaluationWeights
   applicationCount: Int!
   status: String
   department: String
   location: String
   createdAt: String!
+  source: String!
+  sourceUrl: String
+  salaryRange: SalaryRange
+  tags: [String!]
+  publishedAt: String
 }
 
 type Application {
@@ -230,10 +247,22 @@ function mapMatch(doc = {}) {
   };
 }
 
+function mapRequirement(r) {
+  if (typeof r === 'string') {
+    return { description: r, priority: 'must_have' };
+  }
+  return {
+    description: r?.description || r?.name || r?.skill || String(r || ''),
+    priority: r?.priority || 'must_have',
+  };
+}
+
 function mapJob(doc, applicationCount = 0) {
   const requirements = Array.isArray(doc.requirements)
-    ? doc.requirements.map((r) => (typeof r === 'string' ? r : r.name || r.skill || JSON.stringify(r)))
+    ? doc.requirements.map(mapRequirement)
     : [];
+  const published =
+    doc.published_at || doc.publishedAt || doc.createdAt || null;
   return {
     id: String(doc._id),
     title: doc.title || '',
@@ -242,10 +271,31 @@ function mapJob(doc, applicationCount = 0) {
     requirements,
     evaluationWeights: mapWeights(doc.evaluationWeights),
     applicationCount,
-    status: doc.status || 'active',
+    status: doc.status || (doc.active === false ? 'inactive' : 'active'),
     department: doc.department || '',
     location: doc.location || '',
-    createdAt: doc.createdAt ? new Date(doc.createdAt).toISOString() : '',
+    createdAt: doc.createdAt
+      ? new Date(doc.createdAt).toISOString()
+      : published
+        ? new Date(published).toISOString()
+        : '',
+    source: doc.source || 'recruiter',
+    sourceUrl: doc.source_url || doc.sourceUrl || null,
+    salaryRange: doc.salary_range
+      ? {
+          min: doc.salary_range.min ?? null,
+          max: doc.salary_range.max ?? null,
+          currency: doc.salary_range.currency || 'USD',
+        }
+      : doc.salaryMin != null
+        ? {
+            min: doc.salaryMin,
+            max: doc.salaryMax ?? null,
+            currency: doc.currency || 'USD',
+          }
+        : null,
+    tags: doc.tags || [],
+    publishedAt: published ? new Date(published).toISOString() : null,
   };
 }
 
@@ -423,6 +473,58 @@ const resolvers = {
       };
     },
 
+    jobs: async (_parent, { limit = 50, source = null }, context) => {
+      requireUser(context);
+      const db = (await clientPromise).db(
+        (process.env.MONGODB_URI || '').split('/')[3]?.split('?')[0] || 'x-ceed-db'
+      );
+      const lim = Math.min(Number(limit) || 50, 100);
+      const sourceFilter = (source || '').toLowerCase();
+
+      let recruiterJobs = [];
+      if (!sourceFilter || sourceFilter === 'all' || sourceFilter === 'recruiter' || sourceFilter === 'direct') {
+        const now = new Date();
+        recruiterJobs = await db
+          .collection('jobs')
+          .find({
+            status: 'active',
+            $or: [
+              { applicationEnd: { $gte: now } },
+              { applicationEnd: { $exists: false } },
+              { applicationEnd: null },
+            ],
+          })
+          .sort({ createdAt: -1 })
+          .limit(lim)
+          .toArray();
+      }
+
+      let aggregated = [];
+      if (!sourceFilter || sourceFilter === 'all' || sourceFilter === 'remotive' || sourceFilter === 'jobicy') {
+        const q = { active: true };
+        if (sourceFilter === 'remotive' || sourceFilter === 'jobicy') q.source = sourceFilter;
+        aggregated = await db
+          .collection('aggregated_jobs')
+          .find(q)
+          .sort({ published_at: -1 })
+          .limit(lim)
+          .toArray();
+      }
+
+      const merged = [
+        ...recruiterJobs.map((j) => ({ ...j, source: 'recruiter' })),
+        ...aggregated,
+      ]
+        .sort(
+          (a, b) =>
+            new Date(b.published_at || b.createdAt || 0) -
+            new Date(a.published_at || a.createdAt || 0)
+        )
+        .slice(0, lim);
+
+      return merged.map((j) => mapJob(j, j.applicationsCount || 0));
+    },
+
     jobWithCandidates: async (_parent, { jobId }, context) => {
       const user = requireRecruiter(context);
       const db = (await clientPromise).db(
@@ -431,16 +533,36 @@ const resolvers = {
       const recruiterId = user.userId || user.id || user.sub;
 
       let job = null;
+      let isAggregated = false;
       try {
         job = await db.collection('jobs').findOne({ _id: new ObjectId(jobId) });
       } catch {
         job = await db.collection('jobs').findOne({ _id: jobId });
       }
+      if (!job) {
+        try {
+          job = await db.collection('aggregated_jobs').findOne({ _id: new ObjectId(jobId) });
+        } catch {
+          job = await db.collection('aggregated_jobs').findOne({ _id: jobId });
+        }
+        if (job) isAggregated = true;
+      }
       if (!job) throw new Error('Job not found');
-      const owns =
-        String(job.recruiterId) === String(recruiterId) ||
-        String(job.recruiter?.id || '') === String(recruiterId);
-      if (!owns) throw new Error('Not authorized for this job');
+
+      if (!isAggregated) {
+        const owns =
+          String(job.recruiterId) === String(recruiterId) ||
+          String(job.recruiter?.id || '') === String(recruiterId);
+        if (!owns) throw new Error('Not authorized for this job');
+      }
+
+      if (isAggregated) {
+        return {
+          job: mapJob({ ...job, source: job.source || 'remotive' }, 0),
+          candidates: [],
+          weights: mapWeights(job.evaluationWeights),
+        };
+      }
 
       const applications = await db
         .collection('applications')
@@ -476,7 +598,7 @@ const resolvers = {
       candidates.sort((a, b) => b.overallScore - a.overallScore);
 
       return {
-        job: mapJob(job, applications.length),
+        job: mapJob({ ...job, source: 'recruiter' }, applications.length),
         candidates,
         weights: mapWeights(job.evaluationWeights),
       };

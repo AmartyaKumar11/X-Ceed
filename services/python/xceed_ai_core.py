@@ -2511,6 +2511,104 @@ async def career_plan_stream(req: CareerRequest):
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
+JOB_EXTRACT_SYSTEM = """Extract the technical and professional requirements from this job description.
+Return a JSON object with:
+- requirements: array of {description: string, priority: "must_have"|"nice_to_have"}
+  - must_have: explicitly stated as required, mandatory, must have, minimum
+  - nice_to_have: stated as preferred, bonus, nice to have, ideal, plus
+  - Extract specific technologies, years of experience, skills, education, certifications
+  - Keep each requirement to ONE skill or qualification per item
+  - Typically 6-12 requirements per job
+- evaluationWeights: {skills: float, experience: float, education: float, projects: float, communication: float}
+  - Weights must sum to 1.0
+  - Weight skills higher (0.35-0.45) for technical roles
+  - Weight experience higher (0.30-0.40) for senior roles
+  - Weight education lower (0.05-0.10) for roles that say "or equivalent experience"
+  - Infer appropriate weights from the job description's emphasis
+
+Return valid JSON only."""
+
+
+class JobExtractRequest(BaseModel):
+    description: str = Field(..., min_length=20)
+
+
+@app.post("/extract-job-requirements")
+async def extract_job_requirements(req: JobExtractRequest):
+    """Extract requirements + evaluationWeights from a JD (cached in ai_cache)."""
+    description = (req.description or "").strip()
+    if not description:
+        raise HTTPException(status_code=400, detail="description required")
+
+    cache_key = "jobreq:" + hashlib.sha256(description.encode()).hexdigest()
+    col = cache_collection()
+    if col is not None:
+        cached = col.find_one({"_id": cache_key})
+        if cached and cached.get("result"):
+            return cached["result"]
+
+    default_weights = {
+        "skills": 0.35,
+        "experience": 0.25,
+        "education": 0.15,
+        "projects": 0.15,
+        "communication": 0.10,
+    }
+    default_result = {
+        "requirements": [],
+        "evaluationWeights": default_weights,
+    }
+
+    try:
+        response = await resilient_llm.ainvoke(
+            [
+                {"role": "system", "content": JOB_EXTRACT_SYSTEM},
+                {
+                    "role": "user",
+                    "content": f"Job description:\n\n{description[:3000]}",
+                },
+            ],
+            json_mode=True,
+        )
+        result = _parse_json_content(response.content)
+        if not isinstance(result, dict):
+            result = default_result
+
+        requirements = result.get("requirements") or []
+        cleaned = []
+        for r in requirements:
+            if isinstance(r, str):
+                cleaned.append({"description": r, "priority": "must_have"})
+            elif isinstance(r, dict) and r.get("description"):
+                pri = str(r.get("priority") or "must_have").lower()
+                if pri not in ("must_have", "nice_to_have"):
+                    pri = "must_have"
+                cleaned.append({"description": str(r["description"]), "priority": pri})
+        result["requirements"] = cleaned[:20]
+
+        weights = result.get("evaluationWeights") or dict(default_weights)
+        keys = ["skills", "experience", "education", "projects", "communication"]
+        weights = {k: float(weights.get(k, default_weights[k])) for k in keys}
+        total = sum(weights.values()) or 1.0
+        if abs(total - 1.0) > 0.01:
+            weights = {k: round(v / total, 2) for k, v in weights.items()}
+            # fix rounding drift on last key
+            drift = round(1.0 - sum(weights.values()), 2)
+            weights["communication"] = round(weights["communication"] + drift, 2)
+        result["evaluationWeights"] = weights
+
+        if col is not None:
+            col.update_one(
+                {"_id": cache_key},
+                {"$set": {"result": result, "created_at": datetime.utcnow()}},
+                upsert=True,
+            )
+        return result
+    except Exception as e:
+        logger.error(f"extract-job-requirements failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/chat/stream")
 async def chat_stream(req: ChatRequest):
     """Streaming chat — sends tokens as they arrive."""

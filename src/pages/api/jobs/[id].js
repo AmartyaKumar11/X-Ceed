@@ -20,28 +20,45 @@ export default async function handler(req, res) {
         // Anyone can view a single job, no auth required
         try {
           const now = new Date();
-          const job = await db.collection('jobs').findOne({ 
+          let job = await db.collection('jobs').findOne({ 
             _id: new ObjectId(id),
-            status: 'active',  // Only return active jobs for public viewing
-            // Only show jobs that are still accepting applications
+            status: 'active',
             $or: [
-              { applicationEnd: { $gte: now } }, // Application deadline hasn't passed
-              { applicationEnd: { $exists: false } }, // No deadline set
-              { applicationEnd: null } // Explicit null deadline
+              { applicationEnd: { $gte: now } },
+              { applicationEnd: { $exists: false } },
+              { applicationEnd: null }
             ]
           });
-          
-          if (!job) {
+
+          if (job) {
+            await db.collection('jobs').updateOne(
+              { _id: job._id },
+              { $inc: { viewsCount: 1 } }
+            );
+            return res.status(200).json({ job: { ...job, source: 'recruiter' } });
+          }
+
+          // Aggregated Remotive / Jobicy jobs
+          const agg = await db.collection('aggregated_jobs').findOne({
+            _id: new ObjectId(id),
+            active: true,
+          });
+          if (!agg) {
             return res.status(404).json({ message: 'Job not found or no longer available' });
           }
-          
-          // Increment the view count
-          await db.collection('jobs').updateOne(
-            { _id: job._id },
-            { $inc: { viewsCount: 1 } }
-          );
-          
-          return res.status(200).json({ job });
+
+          return res.status(200).json({
+            job: {
+              ...agg,
+              companyName: agg.company,
+              workMode: 'Remote',
+              jobType: agg.job_type,
+              salaryMin: agg.salary_range?.min ?? null,
+              salaryMax: agg.salary_range?.max ?? null,
+              currency: agg.salary_range?.currency || 'USD',
+              createdAt: agg.published_at || agg.fetched_at,
+            },
+          });
         } catch (error) {
           console.error('Error fetching job:', error);
           return res.status(500).json({ message: 'Internal server error' });

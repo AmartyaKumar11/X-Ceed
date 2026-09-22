@@ -183,26 +183,126 @@ export default async function handler(req, res) {  try {
           success: true,
           data: jobsWithStats
         });      } else {
-        // Public jobs listing - show only active jobs that haven't expired
+        // Public jobs listing — recruiter-posted + aggregated (Remotive/Jobicy)
         const now = new Date();
-        const jobs = await db.collection('jobs')
-          .find({ 
-            status: 'active',
-            // Only show jobs that are still accepting applications
-            $or: [
-              { applicationEnd: { $gte: now } }, // Application deadline hasn't passed
-              { applicationEnd: { $exists: false } }, // No deadline set
-              { applicationEnd: null } // Explicit null deadline
-            ]
-          })
-          .sort({ createdAt: -1 })
-          .toArray();
+        const limit = Math.min(parseInt(req.query.limit || '100', 10) || 100, 200);
+        const searchQuery = (req.query.q || req.query.search || '').trim();
+        const sourceFilter = (req.query.source || '').trim().toLowerCase();
 
-        console.log(`📊 Public jobs query: Found ${jobs.length} active, non-expired jobs`);
+        const recruiterQuery = {
+          status: 'active',
+          $or: [
+            { applicationEnd: { $gte: now } },
+            { applicationEnd: { $exists: false } },
+            { applicationEnd: null },
+          ],
+        };
+        if (searchQuery) {
+          recruiterQuery.$and = [
+            {
+              $or: [
+                { title: { $regex: searchQuery, $options: 'i' } },
+                { description: { $regex: searchQuery, $options: 'i' } },
+                { companyName: { $regex: searchQuery, $options: 'i' } },
+                { location: { $regex: searchQuery, $options: 'i' } },
+              ],
+            },
+          ];
+        }
+
+        let recruiterJobs = [];
+        if (!sourceFilter || sourceFilter === 'all' || sourceFilter === 'recruiter' || sourceFilter === 'direct') {
+          recruiterJobs = await db
+            .collection('jobs')
+            .find(recruiterQuery)
+            .sort({ createdAt: -1 })
+            .limit(limit)
+            .toArray();
+        }
+
+        let aggregatedJobs = [];
+        if (!sourceFilter || sourceFilter === 'all' || sourceFilter === 'remotive' || sourceFilter === 'jobicy') {
+          const aggQuery = { active: true };
+          if (sourceFilter === 'remotive' || sourceFilter === 'jobicy') {
+            aggQuery.source = sourceFilter;
+          }
+          try {
+            if (searchQuery) {
+              aggregatedJobs = await db
+                .collection('aggregated_jobs')
+                .find({ ...aggQuery, $text: { $search: searchQuery } })
+                .sort({ published_at: -1 })
+                .limit(limit)
+                .toArray();
+            } else {
+              aggregatedJobs = await db
+                .collection('aggregated_jobs')
+                .find(aggQuery)
+                .sort({ published_at: -1 })
+                .limit(limit)
+                .toArray();
+            }
+          } catch (e) {
+            // text index may not exist yet — fall back to regex
+            if (searchQuery) {
+              aggregatedJobs = await db
+                .collection('aggregated_jobs')
+                .find({
+                  ...aggQuery,
+                  $or: [
+                    { title: { $regex: searchQuery, $options: 'i' } },
+                    { company: { $regex: searchQuery, $options: 'i' } },
+                    { description: { $regex: searchQuery, $options: 'i' } },
+                  ],
+                })
+                .sort({ published_at: -1 })
+                .limit(limit)
+                .toArray();
+            } else {
+              throw e;
+            }
+          }
+        }
+
+        const normalizedRecruiter = recruiterJobs.map((j) => ({
+          ...j,
+          source: 'recruiter',
+          companyName: j.companyName || j.company || '',
+          published_at: j.createdAt,
+        }));
+
+        const normalizedAggregated = aggregatedJobs.map((j) => ({
+          ...j,
+          companyName: j.company || '',
+          company: j.company || '',
+          workMode: 'Remote',
+          jobType: j.job_type || 'full_time',
+          salaryMin: j.salary_range?.min ?? null,
+          salaryMax: j.salary_range?.max ?? null,
+          currency: j.salary_range?.currency || 'USD',
+          createdAt: j.published_at || j.fetched_at,
+          department: (j.tags && j.tags[0]) || 'Tech',
+          level: '',
+          description: j.description || '',
+        }));
+
+        const allJobs = [...normalizedRecruiter, ...normalizedAggregated]
+          .sort(
+            (a, b) =>
+              new Date(b.published_at || b.createdAt || 0) -
+              new Date(a.published_at || a.createdAt || 0)
+          )
+          .slice(0, limit);
+
+        console.log(
+          `📊 Public jobs: ${normalizedRecruiter.length} recruiter + ${normalizedAggregated.length} aggregated → ${allJobs.length}`
+        );
 
         return res.status(200).json({
           success: true,
-          data: jobs
+          data: allJobs,
+          jobs: allJobs,
+          total: allJobs.length,
         });
       }
     } else if (req.method === 'PUT') {

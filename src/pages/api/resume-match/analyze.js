@@ -31,9 +31,11 @@ export default async function handler(req, res) {
       try {
         const client = await clientPromise;
         const db = client.db();
-        const job = await db.collection('jobs').findOne({
-          _id: ObjectId.isValid(jobId) ? new ObjectId(jobId) : jobId,
-        });
+        const oid = ObjectId.isValid(jobId) ? new ObjectId(jobId) : jobId;
+        let job = await db.collection('jobs').findOne({ _id: oid });
+        if (!job) {
+          job = await db.collection('aggregated_jobs').findOne({ _id: oid });
+        }
         if (job?.evaluationWeights) resolvedWeights = job.evaluationWeights;
       } catch (e) {
         console.warn('Could not load job weights:', e.message);

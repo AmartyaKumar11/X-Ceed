@@ -1,0 +1,15 @@
+name: Sync External Jobs
+on:
+  schedule:
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger job sync
+        run: |
+          curl -sf -X POST "${{ secrets.VERCEL_URL }}/api/jobs/sync" \
+            -H "x-sync-secret: ${{ secrets.JOB_SYNC_SECRET }}" \
+            -H "Content-Type: application/json"

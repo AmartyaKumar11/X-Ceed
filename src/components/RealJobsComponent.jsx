@@ -27,7 +27,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import ResumeUploadDialog from './ResumeUploadDialog';
 
-export default function RealJobsComponent({ onJobClick, searchQuery = '', filters = {}, showSavedOnly = false }) {
+export default function RealJobsComponent({ onJobClick, searchQuery = '', filters = {}, showSavedOnly = false, sourceFilter = 'all' }) {
   const { resolvedTheme } = useTheme();
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -44,12 +44,17 @@ export default function RealJobsComponent({ onJobClick, searchQuery = '', filter
   useEffect(() => {
     fetchJobs();
     fetchSavedJobs();
-  }, []);const fetchJobs = async () => {
+  }, [sourceFilter]);
+
+  const fetchJobs = async () => {
     setLoading(true);
     try {
       console.log('🔍 RealJobsComponent: Starting fetchJobs...');
-      // Call the jobs API to get public jobs from the database using direct fetch
-      const response = await fetch('/api/jobs?public=true', {
+      const params = new URLSearchParams({ public: 'true' });
+      if (sourceFilter && sourceFilter !== 'all') {
+        params.set('source', sourceFilter);
+      }
+      const response = await fetch(`/api/jobs?${params.toString()}`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json'
@@ -363,6 +368,16 @@ export default function RealJobsComponent({ onJobClick, searchQuery = '', filter
       filteredJobs = filteredJobs.filter(job => savedJobs.has(job._id));
     }
 
+    if (sourceFilter && sourceFilter !== 'all') {
+      filteredJobs = filteredJobs.filter((job) => {
+        const src = job.source || 'recruiter';
+        if (sourceFilter === 'recruiter' || sourceFilter === 'direct') {
+          return src === 'recruiter';
+        }
+        return src === sourceFilter;
+      });
+    }
+
     return filteredJobs;
   };
   const filteredJobs = getFilteredJobs();
@@ -423,12 +438,24 @@ export default function RealJobsComponent({ onJobClick, searchQuery = '', filter
           {/* Job Header */}
           <div className="flex justify-between items-start mb-4">
             <div className="flex-1">
-              <h3 className="font-semibold text-lg text-foreground group-hover:text-primary transition-colors line-clamp-2">
-                {job.title}
-              </h3>
+              <div className="flex items-center gap-2 flex-wrap mb-1">
+                <h3 className="font-semibold text-lg text-foreground group-hover:text-primary transition-colors line-clamp-2">
+                  {job.title}
+                </h3>
+                {job.source === 'remotive' && (
+                  <Badge variant="outline" className="text-[10px] border-emerald-500/50 text-emerald-600 dark:text-emerald-400 shrink-0">
+                    via Remotive
+                  </Badge>
+                )}
+                {job.source === 'jobicy' && (
+                  <Badge variant="outline" className="text-[10px] border-sky-500/50 text-sky-600 dark:text-sky-400 shrink-0">
+                    via Jobicy
+                  </Badge>
+                )}
+              </div>
               <div className="flex items-center gap-2 mt-1">
                 <Building className="h-4 w-4 text-muted-foreground" />
-                <span className="text-muted-foreground">{job.companyName || 'Company Name'}</span>
+                <span className="text-muted-foreground">{job.companyName || job.company || 'Company Name'}</span>
               </div>
             </div>
             <Button 

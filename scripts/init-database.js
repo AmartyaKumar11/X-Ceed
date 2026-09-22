@@ -40,7 +40,7 @@ async function initializeDatabase() {
     console.log(`Using database: ${dbName}`);
 
     // Create collections if they don't exist
-    const requiredCollections = ['users', 'jobs', 'applications', 'notifications'];
+    const requiredCollections = ['users', 'jobs', 'applications', 'notifications', 'aggregated_jobs', 'ai_cache'];
     const existingCollections = await db.listCollections().toArray();
     const existingCollectionNames = existingCollections.map(c => c.name);
     
@@ -55,6 +55,17 @@ async function initializeDatabase() {
         console.log(`Collection ${collectionName} already exists`);
       }
     }
+
+    // Aggregated jobs indexes (Remotive + Jobicy)
+    const agg = db.collection('aggregated_jobs');
+    await agg.createIndex(
+      { title: 'text', company: 'text', description: 'text' },
+      { name: 'aggregated_jobs_search' }
+    ).catch((e) => console.warn('text index:', e.message));
+    await agg.createIndex({ source_id: 1 }, { unique: true }).catch((e) => console.warn('source_id index:', e.message));
+    await agg.createIndex({ active: 1, published_at: -1 }).catch(() => {});
+    await agg.createIndex({ expires_at: 1 }).catch(() => {});
+    console.log('aggregated_jobs indexes ensured');
 
     // Count documents in each collection
     for (const collectionName of requiredCollections) {
