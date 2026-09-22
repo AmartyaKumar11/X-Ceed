@@ -355,6 +355,19 @@ contract XCeedLearningBets {
     function getContractBalance() external view returns (uint256) {
         return address(this).balance;
     }
+
+    // Milestone verification (accountability hashes — no PII on-chain)
+    event MilestoneVerified(address indexed user, bytes32 indexed milestoneHash, uint256 timestamp);
+    mapping(address => bytes32[]) public userMilestones;
+
+    function verifyMilestone(bytes32 milestoneHash) external {
+        userMilestones[msg.sender].push(milestoneHash);
+        emit MilestoneVerified(msg.sender, milestoneHash, block.timestamp);
+    }
+
+    function getMilestones(address user) external view returns (bytes32[] memory) {
+        return userMilestones[user];
+    }
     
     // Receive function to accept ETH
     receive() external payable {}

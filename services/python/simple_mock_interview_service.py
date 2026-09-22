@@ -21,6 +21,16 @@ app.add_middleware(
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
+# Debug: Check if Gemini key is loaded
+print(f"[DEBUG] GEMINI_API_KEY loaded: {bool(GEMINI_API_KEY)}")
+if GEMINI_API_KEY:
+    key_preview = f"{GEMINI_API_KEY[:4]}...{GEMINI_API_KEY[-4:]}" if len(GEMINI_API_KEY) > 8 else "***"
+    print(f"[DEBUG] Key preview: {key_preview}")
+    print(f"[DEBUG] Key length: {len(GEMINI_API_KEY)} characters")
+    print(f"[DEBUG] Starts with 'AIza': {GEMINI_API_KEY.startswith('AIza')}")
+else:
+    print("[DEBUG] GEMINI_API_KEY is None or empty!")
+
 class QuestionRequest(BaseModel):
     job_description: str
     previous_questions: list = []
@@ -28,13 +38,6 @@ class QuestionRequest(BaseModel):
 @app.get("/")
 async def root():
     return {"message": "Simple Mock Interview Service is running"}
-
-@app.get("/debug/env")
-async def debug_env():
-    return {
-        "gemini_api_key_exists": bool(GEMINI_API_KEY),
-        "gemini_key_length": len(GEMINI_API_KEY) if GEMINI_API_KEY else 0,
-    }
 
 @app.post("/generate-question")
 async def generate_question(req: QuestionRequest):
@@ -66,7 +69,24 @@ Generate the question:
     try:
         print("🔄 Calling Gemini API...")
         genai.configure(api_key=GEMINI_API_KEY)
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        # Try Gemini 2.0 first, then 1.5-flash, then gemini-pro (with fallback chain)
+        model_chain = [
+            'gemini-2.5-flash',          # Gemini 2.5 Flash (best performance, 5 RPM)
+            'gemini-2.5-flash-lite',     # Gemini 2.5 Flash Lite (higher rate limits, 10 RPM)
+            'gemini-3-flash',            # Gemini 3 Flash (if available)
+            'gemini-1.5-flash',          # Gemini 1.5 Flash (stable fallback)
+            'gemini-pro'                 # Gemini Pro (final fallback)
+        ]
+        model = None
+        for model_name in model_chain:
+            try:
+                model = genai.GenerativeModel(model_name)
+                print(f"[INFO] Mock Interview Service using model: {model_name}")
+                break
+            except Exception:
+                continue
+        if not model:
+            raise Exception("Failed to initialize any Gemini model")
         
         response = model.generate_content(prompt)
         if response.text:

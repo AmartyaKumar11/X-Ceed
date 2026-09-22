@@ -2,9 +2,15 @@ import { NextResponse } from 'next/server';
 import { readFile } from 'fs/promises';
 import path from 'path';
 import { existsSync } from 'fs';
+import { authMiddleware } from '@/lib/middleware';
 
 export async function GET(request, { params }) {
   try {
+    const auth = await authMiddleware(request);
+    if (!auth.isAuthenticated) {
+      return NextResponse.json({ error: auth.error || 'Authentication required' }, { status: auth.status || 401 });
+    }
+
     const { filename } = params;
     console.log('📄 PDF view request for filename:', filename);
     

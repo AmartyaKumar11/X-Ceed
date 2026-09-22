@@ -21,36 +21,15 @@ export async function POST(request) {
       }, { status: 500 });
     }
     
-    // Verify authentication - temporarily bypassed for testing like other APIs
-    const token = request.headers.get('authorization')?.replace('Bearer ', '');
-    console.log('🔍 AI Shortlist API - Token check:', token ? 'Token received' : 'No token');
-    
-    // For testing, create a fake decoded user (same as resume-rag-python API)
-    const decoded = { userId: 'test-user-id' };
-    
-    /* Original auth code - temporarily disabled for testing
-    if (!token) {
-      console.error('❌ No token provided');
-      return NextResponse.json({ success: false, message: 'Authentication required' }, { status: 401 });
+    const { authMiddleware } = await import('@/lib/middleware');
+    const auth = await authMiddleware(request);
+    if (!auth.isAuthenticated) {
+      return NextResponse.json({ success: false, message: auth.error || 'Authentication required' }, { status: auth.status || 401 });
     }
-
-    let decoded;
-    try {
-      decoded = verifyToken(token);
-      console.log('✅ Token verified successfully');
-    } catch (tokenError) {
-      console.error('❌ Token verification failed:', tokenError.message);
-      return NextResponse.json({ 
-        success: false, 
-        message: `Token verification failed: ${tokenError.message}` 
-      }, { status: 401 });
+    const decoded = auth.user;
+    if (decoded.userType && decoded.userType !== 'recruiter' && decoded.details?.userType !== 'recruiter') {
+      return NextResponse.json({ success: false, message: 'Recruiter access required' }, { status: 403 });
     }
-
-    if (!decoded || !decoded.userId) {
-      console.error('❌ Invalid token payload:', decoded);
-      return NextResponse.json({ success: false, message: 'Invalid token payload' }, { status: 401 });
-    }
-    */
 
     let body;
     try {

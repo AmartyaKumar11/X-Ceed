@@ -12,21 +12,12 @@ export async function POST(request) {
   console.log('🤖 Python RAG-Powered Resume Analysis API called');
   
   try {
-    // Verify authentication - temporarily bypassed for testing
-    const token = request.headers.get('authorization')?.replace('Bearer ', '');
-    
-    // For testing, create a fake decoded user
-    const decoded = { userId: 'test-user-id' };
-    
-    /* Original auth code - temporarily disabled for testing
-    if (!token) {
-      return NextResponse.json({ success: false, message: 'Authentication required' }, { status: 401 });
+    const { authMiddleware } = await import('@/lib/middleware');
+    const auth = await authMiddleware(request);
+    if (!auth.isAuthenticated) {
+      return NextResponse.json({ success: false, message: auth.error || 'Authentication required' }, { status: auth.status || 401 });
     }
-
-    const decoded = verifyToken(token);
-    if (!decoded || !decoded.userId) {
-      return NextResponse.json({ success: false, message: 'Invalid token' }, { status: 401 });    }
-    */
+    const decoded = auth.user;
 
     const body = await request.json();
     console.log('📥 Received request body:', JSON.stringify(body, null, 2));

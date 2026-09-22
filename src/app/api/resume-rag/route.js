@@ -11,22 +11,12 @@ let ragService = null;
 export async function POST(request) {
   console.log('🤖 RAG-Powered Resume Analysis API called');
     try {
-    // Verify authentication - temporarily bypassed for testing
-    const token = request.headers.get('authorization')?.replace('Bearer ', '');
-    
-    // For testing, create a fake decoded user
-    const decoded = { userId: 'test-user-id' };
-    
-    /* Original auth code - temporarily disabled
-    if (!token) {
-      return NextResponse.json({ success: false, message: 'Authentication required' }, { status: 401 });
+    const { authMiddleware } = await import('@/lib/middleware');
+    const auth = await authMiddleware(request);
+    if (!auth.isAuthenticated) {
+      return NextResponse.json({ success: false, message: auth.error || 'Authentication required' }, { status: auth.status || 401 });
     }
-
-    const decoded = verifyToken(token);
-    if (!decoded || !decoded.userId) {
-      return NextResponse.json({ success: false, message: 'Invalid token' }, { status: 401 });
-    }
-    */
+    const decoded = auth.user;
 
     const body = await request.json();
     const { action, jobId, jobDescription, jobTitle, jobRequirements, resumePath, resumeText, question, conversationHistory } = body;
@@ -134,7 +124,7 @@ async function handleAnalysis({ jobId, jobDescription, jobTitle, jobRequirements
           analyzedAt: new Date().toISOString(),
           jobId,
           userId,
-          model: 'llama3-70b-8192',
+          model: 'liquidai/lfm2.5-1.2b-thinking:free',
           ragEnabled: true
         }
       }

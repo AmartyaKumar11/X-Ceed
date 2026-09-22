@@ -3,32 +3,35 @@
 import { useState, useEffect } from 'react';
 import { useAccount, useWriteContract, useReadContract } from 'wagmi';
 import { LEARNING_BETS_ABI } from '@/config/contracts';
-import { eduToWei, weiToEdu } from '@/config/blockchain';
+import { eduToWei, weiToEdu, CONTRACTS, BLOCKCHAIN_ENABLED } from '@/config/blockchain';
+import { ethers } from 'ethers';
 
 export function useLearningBets() {
   const { address, isConnected } = useAccount();
   const [activeBets, setActiveBets] = useState([]);
   
   const { writeContract, data: hash, error, isPending } = useWriteContract();
+  const contractAddress = CONTRACTS.LEARNING_BETS;
 
   // Read user's active bets from blockchain
   const { data: userBetIds } = useReadContract({
-    address: process.env.NEXT_PUBLIC_LEARNING_BETS_CONTRACT,
+    address: contractAddress,
     abi: LEARNING_BETS_ABI,
     functionName: 'getActiveBets',
     args: [address],
-    enabled: !!address,
+    query: { enabled: !!address && BLOCKCHAIN_ENABLED && !!contractAddress },
   });
 
   // Place a new learning bet
   const placeBet = async (aiTime, challengeTime, courseId, stakeAmount) => {
+    if (!BLOCKCHAIN_ENABLED || !contractAddress) throw new Error('Blockchain features unavailable');
     if (!isConnected) throw new Error('Wallet not connected');
     
     try {
       const stakeWei = eduToWei(stakeAmount);
       
       await writeContract({
-        address: process.env.NEXT_PUBLIC_LEARNING_BETS_CONTRACT,
+        address: contractAddress,
         abi: LEARNING_BETS_ABI,
         functionName: 'placeBet',
         args: [
@@ -48,11 +51,12 @@ export function useLearningBets() {
 
   // Complete a learning bet with results
   const completeBet = async (betId, actualTime, qualityScore) => {
+    if (!BLOCKCHAIN_ENABLED || !contractAddress) throw new Error('Blockchain features unavailable');
     if (!isConnected) throw new Error('Wallet not connected');
     
     try {
       await writeContract({
-        address: process.env.NEXT_PUBLIC_LEARNING_BETS_CONTRACT,
+        address: contractAddress,
         abi: LEARNING_BETS_ABI,
         functionName: 'completeBet',
         args: [
@@ -67,6 +71,19 @@ export function useLearningBets() {
       console.error('Error completing bet:', err);
       throw err;
     }
+  };
+
+  const verifyMilestone = async (milestoneData) => {
+    if (!BLOCKCHAIN_ENABLED || !contractAddress) throw new Error('Blockchain features unavailable');
+    if (!isConnected) throw new Error('Wallet not connected');
+    const hashBytes = ethers.keccak256(ethers.toUtf8Bytes(JSON.stringify(milestoneData)));
+    await writeContract({
+      address: contractAddress,
+      abi: LEARNING_BETS_ABI,
+      functionName: 'verifyMilestone',
+      args: [hashBytes],
+    });
+    return hash;
   };
 
   // Calculate potential payout before placing bet
@@ -126,10 +143,12 @@ export function useLearningBets() {
     isConnected,
     isPending,
     error,
+    blockchainEnabled: BLOCKCHAIN_ENABLED,
     
     // Actions
     placeBet,
     completeBet,
+    verifyMilestone,
     
     // Utilities
     calculatePotentialPayout,

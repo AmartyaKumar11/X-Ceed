@@ -1,36 +1,38 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
-// This is a placeholder page that will redirect users to appropriate dashboard
-// In a real application, you would check the user's role in a database/session
 export default function DashboardPage() {
   const router = useRouter();
-    useEffect(() => {
-    // For demo, redirect to applicant dashboard by default
-    // In a real app, you would check the user's role from authentication state
-    const checkUserRole = () => {
-      // Simulate checking user role
-      let userRole = 'applicant';  // Default role
-      
-      if (typeof window !== 'undefined') {
-        userRole = localStorage.getItem('userRole') || 'applicant';
-      }
-      
-      if (userRole === 'recruiter') {
-        router.replace('/dashboard/recruiter');
-      } else {
-        router.replace('/dashboard/applicant');
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    const checkUserRole = async () => {
+      try {
+        const res = await fetch('/api/auth/me', { credentials: 'include' });
+        if (!res.ok) {
+          router.replace('/auth');
+          return;
+        }
+        const data = await res.json();
+        const userType = data?.user?.userType || data?.userType;
+        if (userType === 'recruiter') {
+          router.replace('/dashboard/recruiter');
+        } else {
+          router.replace('/dashboard/applicant');
+        }
+      } catch (e) {
+        setError('Unable to verify session');
+        router.replace('/auth');
       }
     };
-    
     checkUserRole();
   }, [router]);
-  
+
   return (
     <div className="flex h-screen w-screen items-center justify-center">
-      <div className="animate-pulse">Loading your dashboard...</div>
+      <div className="animate-pulse">{error || 'Loading your dashboard...'}</div>
     </div>
   );
 }

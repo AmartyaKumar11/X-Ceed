@@ -59,19 +59,18 @@ collection = db["mock_interviews"]
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-MISTRAL_MODEL = "mistralai/mistral-7b-instruct:free"
 
-# Debug endpoint to check environment variables
-@app.get("/debug/env")
-async def debug_env():
-    return {
-        "openrouter_api_key_exists": bool(OPENROUTER_API_KEY),
-        "gemini_api_key_exists": bool(GEMINI_API_KEY),
-        "api_key_length": len(OPENROUTER_API_KEY) if OPENROUTER_API_KEY else 0,
-        "gemini_key_length": len(GEMINI_API_KEY) if GEMINI_API_KEY else 0,
-        "api_key_prefix": OPENROUTER_API_KEY[:10] + "..." if OPENROUTER_API_KEY else "NONE",
-        "model": MISTRAL_MODEL
-    }
+# Debug: Check if Gemini key is loaded
+print(f"[DEBUG] GEMINI_API_KEY loaded: {bool(GEMINI_API_KEY)}")
+if GEMINI_API_KEY:
+    key_preview = f"{GEMINI_API_KEY[:4]}...{GEMINI_API_KEY[-4:]}" if len(GEMINI_API_KEY) > 8 else "***"
+    print(f"[DEBUG] Key preview: {key_preview}")
+    print(f"[DEBUG] Key length: {len(GEMINI_API_KEY)} characters")
+    print(f"[DEBUG] Starts with 'AIza': {GEMINI_API_KEY.startswith('AIza')}")
+else:
+    print("[DEBUG] GEMINI_API_KEY is None or empty!")
+
+MISTRAL_MODEL = "mistralai/mistral-7b-instruct:free"
 
 # Simple test endpoint
 @app.get("/test")
@@ -166,7 +165,24 @@ Generate the question:
         print("[INFO] Trying Gemini API...")
         try:
             genai.configure(api_key=GEMINI_API_KEY)
-            model = genai.GenerativeModel('gemini-1.5-flash')
+            # Try Gemini 2.0 first, then 1.5-flash, then gemini-pro (with fallback chain)
+            model_chain = [
+                'gemini-2.5-flash',          # Gemini 2.5 Flash (best performance, 5 RPM)
+                'gemini-2.5-flash-lite',     # Gemini 2.5 Flash Lite (higher rate limits, 10 RPM)
+                'gemini-3-flash',            # Gemini 3 Flash (if available)
+                'gemini-1.5-flash',          # Gemini 1.5 Flash (stable fallback)
+                'gemini-pro'                 # Gemini Pro (final fallback)
+            ]
+            model = None
+            for model_name in model_chain:
+                try:
+                    model = genai.GenerativeModel(model_name)
+                    print(f"[INFO] Job Description Service using model: {model_name}")
+                    break
+                except Exception:
+                    continue
+            if not model:
+                raise Exception("Failed to initialize any Gemini model")
             
             response = model.generate_content(prompt)
             if response.text:

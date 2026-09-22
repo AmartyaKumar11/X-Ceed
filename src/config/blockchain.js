@@ -44,9 +44,14 @@ export const wagmiConfig = createConfig({
   },
 });
 
-// Smart Contract Addresses (will be updated after deployment)
+// Smart Contract Addresses — unset/zero = blockchain disabled in UI
+const _rawContract = process.env.NEXT_PUBLIC_LEARNING_BETS_CONTRACT || '';
+const ZERO = '0x0000000000000000000000000000000000000000';
+export const BLOCKCHAIN_ENABLED =
+  !!_rawContract && _rawContract.toLowerCase() !== ZERO.toLowerCase();
+
 export const CONTRACTS = {
-  LEARNING_BETS: process.env.NEXT_PUBLIC_LEARNING_BETS_CONTRACT || '0x0000000000000000000000000000000000000000',
+  LEARNING_BETS: BLOCKCHAIN_ENABLED ? _rawContract : null,
 };
 
 // Betting Configuration

@@ -2,9 +2,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import { writeFile, mkdir } from 'fs/promises';
 import path from 'path';
 import { existsSync } from 'fs';
+import { authMiddleware } from '@/lib/middleware';
 
 export async function POST(request) {
   try {
+    const auth = await authMiddleware(request);
+    if (!auth.isAuthenticated) {
+      return NextResponse.json({ success: false, message: auth.error || 'Authentication required' }, { status: auth.status || 401 });
+    }
+
     console.log('📥 Resume upload request received');
     
     const formData = await request.formData();
