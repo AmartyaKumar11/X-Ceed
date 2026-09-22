@@ -1,54 +1,30 @@
 'use client';
 
-import { useTheme } from 'next-themes';
-import { Toggle } from '@/components/ui/toggle';
-import { useEffect, useState } from 'react';
-import { Sun, Moon } from 'lucide-react';
-
+/**
+ * Theme is locked to light across the product.
+ * Kept as a presentational control so existing call sites don't break.
+ */
 export default function DarkModeToggle() {
-  const { theme, setTheme, resolvedTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
-
-  // Avoid hydration mismatch
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-  if (!mounted) {
-    return (
-      <div className="w-10 h-10 rounded-full bg-muted animate-pulse" />
-    );
-  }
-
-  const isDark = resolvedTheme === 'dark';  const toggleTheme = () => {
-    setTheme(isDark ? 'light' : 'dark');
-  };
-
-  const handleToggle = (pressed) => {
-    setTheme(pressed ? 'dark' : 'light');
-  };
-
   return (
-    <Toggle
-      pressed={isDark}
-      onPressedChange={handleToggle}
-      size="lg"
-      className="w-10 h-10 rounded-full bg-muted hover:bg-muted/80 transition-all duration-300 ease-in-out group data-[state=on]:bg-muted"
-      aria-label={`Switch to ${isDark ? 'light' : 'dark'} mode`}
-      title={`Switch to ${isDark ? 'light' : 'dark'} mode`}
-      onClick={(e) => e.stopPropagation()}
+    <div
+      className="flex h-10 w-10 items-center justify-center rounded-full bg-muted text-foreground"
+      aria-label="Light mode"
+      title="Light mode"
     >
-      <div 
-        className="transition-transform duration-500 ease-in-out group-hover:scale-110"
-        style={{
-          transform: isDark ? 'rotate(180deg)' : 'rotate(0deg)',
-          transition: 'transform 0.5s ease-in-out'
-        }}
-      >        {isDark ? (
-          <Moon className="h-5 w-5 text-foreground" />
-        ) : (
-          <Sun className="h-5 w-5 text-foreground" />
-        )}
-      </div>
-    </Toggle>
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="h-5 w-5"
+        aria-hidden
+      >
+        <circle cx="12" cy="12" r="4" />
+        <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
+      </svg>
+    </div>
   );
 }

@@ -94,16 +94,16 @@
   }
 }
 
-/* Dark mode support if you're using shadcn/ui with themes */
+/* Dark mode disabled — light only */
 :global(.dark) .container {
-  background-color: #09090b;
-  color: #fafafa;
+  background-color: white;
+  color: black;
 }
 
 :global(.dark) .cursor {
-  background-color: #fafafa;
+  background-color: #000;
 }
 
 :global(.dark) .tagline {
-  color: #a1a1aa;
+  color: #00f6ff;
 }
