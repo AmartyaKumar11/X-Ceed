@@ -150,8 +150,8 @@ export default function ApplicantDashboardPage() {
       { 
         key: 'education', 
         label: 'Education', 
-        check: () => profileData.education && profileData.education.length > 0 && 
-                    profileData.education.some(edu => edu.institution && edu.degree)
+        check: () => Array.isArray(profileData.education) && profileData.education.length > 0 && 
+                    profileData.education.some(edu => edu?.institution && edu?.degree)
       },
       { 
         key: 'contact', 
@@ -160,8 +160,9 @@ export default function ApplicantDashboardPage() {
       },
       { 
         key: 'experience', 
-        label: 'Work Experience',        check: () => profileData.workExperience && profileData.workExperience.length > 0 && 
-                    profileData.workExperience.some(exp => exp.company && exp.position)
+        label: 'Work Experience',
+        check: () => Array.isArray(profileData.workExperience) && profileData.workExperience.length > 0 && 
+                    profileData.workExperience.some(exp => exp?.company && exp?.position)
       }
     ];
 
