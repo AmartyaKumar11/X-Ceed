@@ -61,11 +61,12 @@ export default async function handler(req, res) {
     console.log("✅ Login successful for user:", user.email);
     
     // Generate JWT token with user information
+    const resolvedType = user.userType || user.role || 'applicant';
     const token = await createToken({ 
       userId: user._id.toString(),
       email: user.email,
-      userType: user.userType,
-      name: user.userType === 'applicant' ? user.personal?.name : user.recruiter?.name
+      userType: resolvedType,
+      name: resolvedType === 'applicant' ? user.personal?.name : user.recruiter?.name
     });
     
     // Set the token in the cookies
@@ -102,7 +103,8 @@ export default async function handler(req, res) {
       token,
       user: {
         ...userWithoutSensitiveInfo,
-        userType: userWithoutSensitiveInfo.role // Add userType field for frontend compatibility
+        userType: resolvedType,
+        role: resolvedType,
       }
     });
     

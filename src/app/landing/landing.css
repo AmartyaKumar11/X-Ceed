@@ -112,3 +112,60 @@ html {
   inset: -2px;
   filter: blur(4px);
 }
+
+/* Roles — blue command center vs violet launchpad */
+.role-card {
+  transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 0.5s ease,
+    background 0.5s ease;
+  background-color: #0a0a0a;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.role-card--recruiter {
+  background-image: linear-gradient(
+    135deg,
+    rgba(0, 112, 243, 0.06) 0%,
+    rgba(0, 0, 0, 0) 50%
+  );
+}
+
+.role-card--recruiter:hover {
+  transform: translateY(-4px);
+  border-color: rgba(0, 112, 243, 0.2);
+  background-image: linear-gradient(
+    135deg,
+    rgba(0, 112, 243, 0.12) 0%,
+    rgba(0, 0, 0, 0) 50%
+  );
+}
+
+.role-card--candidate {
+  background-image: linear-gradient(
+    135deg,
+    rgba(121, 40, 202, 0.06) 0%,
+    rgba(0, 0, 0, 0) 50%
+  );
+}
+
+.role-card--candidate:hover {
+  transform: translateY(-4px);
+  border-color: rgba(121, 40, 202, 0.2);
+  background-image: linear-gradient(
+    135deg,
+    rgba(121, 40, 202, 0.12) 0%,
+    rgba(0, 0, 0, 0) 50%
+  );
+}
+
+.role-icon--blue {
+  border: 1px solid rgba(0, 112, 243, 0.25);
+  background: rgba(0, 112, 243, 0.1);
+  color: #0070f3;
+}
+
+.role-icon--violet {
+  border: 1px solid rgba(121, 40, 202, 0.25);
+  background: rgba(121, 40, 202, 0.1);
+  color: #7928ca;
+}

@@ -24,6 +24,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { useRouter } from 'next/navigation';
 import ResumeUploadDialog from './ResumeUploadDialog';
+import { stashResumeMatchJob } from '@/lib/resumeMatchHandoff';
 
 export default function JobicyJobsComponent() {
   const router = useRouter();
@@ -242,25 +243,29 @@ export default function JobicyJobsComponent() {
     // Close the upload dialog
     setShowUploadDialog(false);
 
-    // Navigate to resume match page with both resume and job data
-    const matchParams = new URLSearchParams({
-      // Use a temporary ID for remote jobs
-      jobId: 'remote_' + selectedJobForMatching._id,
-      jobTitle: selectedJobForMatching.title,
+    // Large JD/requirements go in sessionStorage — URL query blows past HTTP 431 limits
+    const remoteJobId = 'remote_' + selectedJobForMatching._id;
+    stashResumeMatchJob({
+      jobId: remoteJobId,
+      title: selectedJobForMatching.title,
       companyName: selectedJobForMatching.company,
-      jobDesc: encodeURIComponent(scrapedJobData.description),
-      requirements: JSON.stringify(scrapedJobData.requirements),
+      description: scrapedJobData.description,
+      requirements: scrapedJobData.requirements || [],
       jobType: 'remote',
       location: selectedJobForMatching.location,
       source: 'jobicy',
       applicationUrl: selectedJobForMatching.applicationUrl,
-      remote: 'true',
-      // Resume data
-      resumeFilename: resumeData.filename,
-      resumeName: resumeData.originalName || resumeData.filename
+      remote: true,
     });
 
-    // Navigate to resume match page
+    const matchParams = new URLSearchParams({
+      jobId: remoteJobId,
+      source: 'jobicy',
+      remote: 'true',
+      resumeFilename: resumeData.filename,
+      resumeName: resumeData.originalName || resumeData.filename,
+    });
+
     router.push(`/dashboard/applicant/resume-match?${matchParams.toString()}`);
 
     // Clear the stored data

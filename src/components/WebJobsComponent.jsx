@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Loader2, ExternalLink, FileText, Search } from 'lucide-react';
 import ResumeUploadDialog from './ResumeUploadDialog';
+import { stashResumeMatchJob } from '@/lib/resumeMatchHandoff';
 
 const JOB_TYPE_LABELS = {
   full_time: 'Full Time',
@@ -78,16 +79,23 @@ export default function WebJobsComponent() {
   };
 
   const handleResumeUploadSuccess = (resumeData) => {
+    const job = resumeUploadDialog.job;
+    const jobId = String(job.id);
+    stashResumeMatchJob({
+      jobId,
+      title: job.title || 'External Job',
+      companyName: job.companyName || '',
+      description: job.description || '',
+      requirements: [],
+      jobType: job.jobType || '',
+      source: 'web',
+    });
     const params = new URLSearchParams({
-      jobId: resumeUploadDialog.job.id,
+      jobId,
       resumeId: resumeData.id,
       resumeFilename: resumeData.filename,
       resumeName: resumeData.originalName,
       external: 'true',
-      jobDesc: resumeUploadDialog.job.description ? encodeURIComponent(resumeUploadDialog.job.description.slice(0, 2000)) : '',
-      requirements: JSON.stringify([]), // Remotive does not provide requirements
-      companyName: resumeUploadDialog.job.companyName || '',
-      jobType: resumeUploadDialog.job.jobType || '',
     });
     window.location.href = `/dashboard/applicant/resume-match?${params.toString()}`;
   };

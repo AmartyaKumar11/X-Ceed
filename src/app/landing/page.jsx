@@ -11,8 +11,9 @@ import {
 } from "framer-motion";
 import {
   ArrowRight,
-  Briefcase,
-  GraduationCap,
+  LayoutDashboard,
+  Rocket,
+  CheckCircle2,
   Github,
   Mail,
   BookOpen,
@@ -514,66 +515,117 @@ export default function LandingPage() {
       {/* 5. PIPELINE */}
       <PipelineSection />
 
-      {/* 6. ROLES */}
+      {/* 6. ROLES — blue command center vs violet launchpad */}
       <section id="roles" className="border-t border-white/10 py-24 md:py-32">
         <div className="mx-auto max-w-7xl px-6">
-          <div className="grid gap-3 md:grid-cols-2">
-            <SectionReveal>
-              <div className="bento-card h-full rounded-md bg-[#0a0a0a] p-8 md:p-10">
-                <Briefcase className="size-5 text-white/40" />
-                <h2 className="mt-4 text-2xl font-semibold tracking-[-0.025em]">For Recruiters</h2>
+          <div className="relative flex flex-col gap-4 md:flex-row md:gap-0">
+            <motion.div
+              className="role-card role-card--recruiter group relative flex-1 overflow-hidden rounded-md p-8 md:p-10"
+              initial={{ opacity: 0, x: -30 }}
+              whileInView={{ opacity: 1, x: 0 }}
+              viewport={{ once: true, amount: 0.25 }}
+              transition={{ duration: 0.7, ease: EASE }}
+            >
+              <div
+                className="pointer-events-none absolute -left-10 -top-10 size-64 rounded-full"
+                style={{
+                  background: "radial-gradient(circle, rgba(0,112,243,0.22) 0%, transparent 68%)",
+                }}
+                aria-hidden
+              />
+              <div className="relative flex h-full flex-col">
+                <div className="role-icon--blue flex size-14 items-center justify-center rounded-lg">
+                  <LayoutDashboard className="size-10" strokeWidth={1.5} />
+                </div>
+                <h2 className="mt-6 text-2xl font-semibold tracking-[-0.03em] text-white">
+                  For Recruiters
+                </h2>
                 <p className="mt-2 text-sm text-white/45">
                   Configurable weights, AI shortlists, and outreach that cite evidence.
                 </p>
-                <ul className="mt-8 space-y-3 text-sm text-white/70">
+                <ul className="mt-8 flex flex-col gap-3 text-sm text-white/70">
                   {[
                     "Weight skills, experience, education, projects, communication",
                     "AI Core shortlist with live match scores",
                     "Evidence-backed explanations — not black-box scores",
                     "GraphQL dashboard for applications & stats",
                   ].map((t) => (
-                    <li key={t} className="flex gap-2">
-                      <span className="mt-1.5 size-1 shrink-0 rounded-full bg-[#0070F3]" />
-                      {t}
+                    <li key={t} className="flex items-start gap-3">
+                      <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-[#60A5FA]" />
+                      <span>{t}</span>
                     </li>
                   ))}
                 </ul>
-                <Button
-                  className="mt-8 bg-white text-black hover:bg-white/90"
+                <button
+                  type="button"
+                  className="mt-8 inline-flex h-11 items-center justify-center gap-2 self-start rounded-md border border-white/10 bg-white/10 px-5 text-sm font-medium text-white backdrop-blur transition-colors hover:bg-white/20 md:mt-auto md:pt-8"
                   onClick={() => router.push("/auth")}
                 >
                   Hire with X-CEED
-                </Button>
+                  <ArrowRight className="size-4" />
+                </button>
               </div>
-            </SectionReveal>
-            <SectionReveal>
-              <div className="bento-card h-full rounded-md bg-[#0a0a0a] p-8 md:p-10">
-                <GraduationCap className="size-5 text-white/40" />
-                <h2 className="mt-4 text-2xl font-semibold tracking-[-0.025em]">For Candidates</h2>
+            </motion.div>
+
+            {/* vertical / horizontal divider */}
+            <div
+              className="relative hidden w-8 shrink-0 self-stretch md:block"
+              aria-hidden
+            >
+              <div className="absolute inset-y-10 left-1/2 w-px -translate-x-1/2 bg-gradient-to-b from-transparent via-white/15 to-transparent" />
+            </div>
+            <div
+              className="mx-2 h-px w-auto bg-gradient-to-r from-transparent via-white/15 to-transparent md:hidden"
+              aria-hidden
+            />
+
+            <motion.div
+              className="role-card role-card--candidate group relative flex-1 overflow-hidden rounded-md p-8 md:p-10"
+              initial={{ opacity: 0, x: 30 }}
+              whileInView={{ opacity: 1, x: 0 }}
+              viewport={{ once: true, amount: 0.25 }}
+              transition={{ duration: 0.7, ease: EASE }}
+            >
+              <div
+                className="pointer-events-none absolute -left-10 -top-10 size-64 rounded-full"
+                style={{
+                  background: "radial-gradient(circle, rgba(121,40,202,0.22) 0%, transparent 68%)",
+                }}
+                aria-hidden
+              />
+              <div className="relative flex h-full flex-col">
+                <div className="role-icon--violet flex size-14 items-center justify-center rounded-lg">
+                  <Rocket className="size-10" strokeWidth={1.5} />
+                </div>
+                <h2 className="mt-6 text-2xl font-semibold tracking-[-0.03em] text-white">
+                  For Candidates
+                </h2>
                 <p className="mt-2 text-sm text-white/45">
                   Career plans, mock interviews, quizzes, and on-chain learning bets.
                 </p>
-                <ul className="mt-8 space-y-3 text-sm text-white/70">
+                <ul className="mt-8 flex flex-col gap-3 text-sm text-white/70">
                   {[
                     "Per-gap YouTube courses + study sequencing",
                     "Adaptive mock interviews with live feedback",
                     "Unique quizzes grounded in your video notes",
                     "EduChain milestones for real accountability",
                   ].map((t) => (
-                    <li key={t} className="flex gap-2">
-                      <span className="mt-1.5 size-1 shrink-0 rounded-full bg-[#0070F3]" />
-                      {t}
+                    <li key={t} className="flex items-start gap-3">
+                      <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-[#A78BFA]" />
+                      <span>{t}</span>
                     </li>
                   ))}
                 </ul>
-                <Button
-                  className="mt-8 bg-white text-black hover:bg-white/90"
+                <button
+                  type="button"
+                  className="mt-8 inline-flex h-11 items-center justify-center gap-2 self-start rounded-md border border-white/10 bg-white/10 px-5 text-sm font-medium text-white backdrop-blur transition-colors hover:border-[rgba(121,40,202,0.35)] hover:bg-[rgba(121,40,202,0.2)] md:mt-auto md:pt-8"
                   onClick={() => router.push("/auth")}
                 >
                   Build your career
-                </Button>
+                  <ArrowRight className="size-4" />
+                </button>
               </div>
-            </SectionReveal>
+            </motion.div>
           </div>
         </div>
       </section>

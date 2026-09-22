@@ -33,6 +33,7 @@ import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import EnhancedVideoSelector from "@/components/prep-plan/EnhancedVideoSelector";
+import { peekResumeMatchJob } from "@/lib/resumeMatchHandoff";
 
 function ResumeMatchPageInner() {
   const searchParams = useSearchParams();
@@ -193,8 +194,25 @@ function ResumeMatchPageInner() {
 
       // Fetch job data
       let jobData = null;
-      if (jobDesc) {
-        // External job: use jobDesc and requirements from query params
+      const stashed = peekResumeMatchJob(jobId);
+      if (stashed?.description) {
+        // External/remote job handoff via sessionStorage (avoids HTTP 431 from huge query strings)
+        jobData = {
+          _id: stashed.jobId || jobId || 'external',
+          title: stashed.title || 'External Job',
+          description: stashed.description,
+          requirements: stashed.requirements || [],
+          companyName: stashed.companyName || '',
+          jobType: stashed.jobType || '',
+          location: stashed.location,
+          applicationUrl: stashed.applicationUrl,
+          remote: stashed.remote,
+          source: stashed.source,
+        };
+        setJob(jobData);
+        console.log('🌐 Using stashed external job data:', jobData.title);
+      } else if (jobDesc) {
+        // Legacy: short jobDesc in query (keep for old bookmarks)
         jobData = {
           _id: jobId || 'external',
           title: searchParams.get('jobTitle') || 'External Job',
@@ -204,8 +222,8 @@ function ResumeMatchPageInner() {
           jobType: jobTypeParam || '',
         };
         setJob(jobData);
-        console.log('🌐 Using external job data:', jobData);
-      } else if (jobId) {
+        console.log('🌐 Using external job data from query:', jobData);
+      } else if (jobId && !String(jobId).startsWith('remote_')) {
         // Internal job: fetch from API
         console.log('📋 Fetching job data for:', jobId);
         const jobResponse = await fetch(`/api/jobs/${jobId}`);
