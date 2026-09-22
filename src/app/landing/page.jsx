@@ -22,7 +22,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import DarkModeToggle from "@/components/DarkModeToggle";
-import { BUILT_WITH } from "@/components/landing/logos";
+import { BUILT_WITH, TechLogo } from "@/components/landing/logos";
 import {
   MatchDashboardMock,
   ResumeAnalysisMock,
@@ -197,12 +197,9 @@ function LogoMarquee() {
     <div className="relative overflow-hidden">
       <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-16 logo-marquee-fade" />
       <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-16 logo-marquee-fade logo-marquee-fade--right" />
-      <div className="logo-marquee-track py-1 text-foreground">
-        {logos.map(({ name, Logo }, i) => (
-          <Logo
-            key={`${name}-${i}`}
-            className="h-5 w-auto shrink-0 opacity-50 transition-opacity hover:opacity-100"
-          />
+      <div className="logo-marquee-track flex items-center gap-10 py-2 text-foreground">
+        {logos.map(({ name, slug }, i) => (
+          <TechLogo key={`${name}-${i}`} name={name} slug={slug} />
         ))}
       </div>
     </div>
