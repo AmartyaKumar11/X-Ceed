@@ -62,15 +62,17 @@ export default function MockInterviewPage() {
   const [recognition, setRecognition] = useState(null);
   const [speechSynthesis, setSpeechSynthesis] = useState(null);
   
-  // Interview settings
+  const [interviewType, setInterviewType] = useState('mixed');
+  const [targetRole, setTargetRole] = useState('Software Engineer');
+  const [lastFeedback, setLastFeedback] = useState(null);
+  const [scoreHistory, setScoreHistory] = useState([]);
+  const [finalReport, setFinalReport] = useState(null);
   const [totalQuestions, setTotalQuestions] = useState(5);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [jobDescription, setJobDescription] = useState('');
   const [interviewDuration, setInterviewDuration] = useState(0);
   const [startTime, setStartTime] = useState(null);
-  
-  // Backend service status
-  const [backendStatus, setBackendStatus] = useState('checking'); // 'checking', 'online', 'offline'
+
   
   // Sidebar state
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -269,7 +271,17 @@ export default function MockInterviewPage() {
         },
         body: JSON.stringify({
           jobDescription,
+          role: targetRole,
+          interviewType,
+          questionNumber: currentQuestionIndex + 1,
+          previous_qa_pairs: questionHistory.map((q, i) => ({
+            question: q.text || q.question,
+            answer: answerHistory[i] || '',
+            score: scoreHistory[i],
+          })),
           questionHistory: questionHistory.map(q => q.text),
+          answerHistory,
+          scoreHistory,
           currentQuestionIndex,
           totalQuestions
         }),
@@ -404,26 +416,51 @@ export default function MockInterviewPage() {
   };
 
   const nextQuestion = async () => {
-    // Don't allow next question if interview is paused
-    if (isInterviewPaused) {
+    if (isInterviewPaused) return;
+
+    const answerText = transcript.trim();
+    if (!answerText || !currentQuestion) {
+      toast({ title: 'Answer required', description: 'Provide an answer before next question.', variant: 'destructive' });
       return;
     }
 
-    // Save current answer
-    if (transcript.trim() && currentQuestion) {
-      const newAnswer = {
-        id: Date.now(),
-        question: currentQuestion,
-        answer: transcript.trim(),
-        timestamp: new Date()
-      };
-      setAnswerHistory(prev => [...prev, newAnswer]);
-      setTranscript('');
+    // Analyze this answer first (adaptive signal for next Q)
+    setIsAnalyzing(true);
+    let score = null;
+    try {
+      const fbRes = await fetch('/api/mock-interview/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          question: currentQuestion,
+          answer: answerText,
+          role: targetRole,
+          interviewType,
+          jobDescription,
+        }),
+      });
+      const fb = await fbRes.json();
+      if (!fbRes.ok) throw new Error(fb.error || 'Analyze failed');
+      setLastFeedback(fb);
+      score = fb.score;
+      setScoreHistory((prev) => [...prev, score]);
+    } catch (e) {
+      toast({ title: 'Analysis failed', description: e.message, variant: 'destructive' });
+      setIsAnalyzing(false);
+      return;
+    } finally {
+      setIsAnalyzing(false);
     }
-    
+
+    setAnswerHistory((prev) => [
+      ...prev,
+      { id: Date.now(), question: currentQuestion, answer: answerText, score, timestamp: new Date() },
+    ]);
+    setTranscript('');
+
     const nextIndex = currentQuestionIndex + 1;
     setCurrentQuestionIndex(nextIndex);
-    
+
     if (nextIndex >= totalQuestions) {
       await stopInterview();
     } else {
@@ -433,64 +470,35 @@ export default function MockInterviewPage() {
 
   const analyzeInterview = async () => {
     setIsAnalyzing(true);
-    
     try {
+      const qa_pairs = questionHistory.map((q, i) => ({
+        question: q.text || q.question,
+        answer: (answerHistory[i]?.answer || answerHistory[i] || ''),
+        score: scoreHistory[i],
+      }));
       const response = await fetch('/api/mock-interview/analyze', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          action: 'report',
+          role: targetRole,
+          interviewType,
           jobDescription,
-          questionHistory,
-          answerHistory,
-          interviewDuration: Date.now() - startTime
+          qa_pairs,
         }),
       });
-
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        if (response.status === 503 && errorData.fallback) {
-          throw new Error(errorData.message || 'Backend service unavailable');
-        }
-        throw new Error(errorData.error || 'Failed to analyze interview');
+        throw new Error(errorData.error || 'Failed to generate report');
       }
-
       const data = await response.json();
-      
-      // Validate the response data
-      if (!data.score && !data.analysis) {
-        throw new Error('Invalid analysis data received from server');
-      }
-      
-      setInterviewScore(data.score);
-      setAnalysis(data.analysis);
-      
-      toast({
-        title: "Interview analysis complete!",
-        description: "Check the analysis panel for detailed feedback.",
-      });
-      
+      setFinalReport(data);
+      setInterviewScore(data.overall_score);
+      setAnalysis(data);
+      toast({ title: 'Interview report ready', description: `Overall score: ${data.overall_score}/10` });
     } catch (error) {
       console.error('Error analyzing interview:', error);
-      
-      // Provide specific error messages
-      let errorTitle = "Analysis failed";
-      let errorDescription = "Could not analyze the interview. Please try again.";
-      
-      if (error.message.includes('Backend service unavailable') || error.message.includes('port 8008')) {
-        errorTitle = "Backend service unavailable";
-        errorDescription = "The Python backend service is not running. Analysis requires the backend service. Please start it using 'npm run job-desc-service'.";
-      } else if (error.message.includes('timeout') || error.message.includes('fetch')) {
-        errorTitle = "Analysis timeout";
-        errorDescription = "The analysis is taking too long. Please check if the backend service is running properly.";
-      }
-      
-      toast({
-        title: errorTitle,
-        description: errorDescription,
-        variant: "destructive",
-      });
+      toast({ title: 'Report failed', description: error.message, variant: 'destructive' });
     } finally {
       setIsAnalyzing(false);
     }
@@ -506,6 +514,9 @@ export default function MockInterviewPage() {
     setTranscript('');
     setInterviewScore(null);
     setAnalysis(null);
+    setLastFeedback(null);
+    setScoreHistory([]);
+    setFinalReport(null);
     setCurrentQuestionIndex(0);
     setInterviewDuration(0);
     

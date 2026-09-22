@@ -1,65 +1,69 @@
 export default async function handler(req, res) {
-  if (req.method !== "POST") {
-    return res.status(405).json({ error: "Method not allowed" });
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  // Handle test requests for status checking
-  if (req.body.test) {
+  const base = process.env.NEXT_PUBLIC_AI_SUPPORT_URL || 'http://localhost:8001';
+
+  if (req.body?.test) {
     try {
-      const fetch = require("node-fetch");
-      const base = process.env.NEXT_PUBLIC_AI_SUPPORT_URL || "http://localhost:8001";
-      const response = await fetch(`${base}/health`, {
-        method: "GET",
-        timeout: 5000,
-      });
-      
-      if (response.ok) {
-        return res.status(200).json({ status: "online" });
-      } else {
-        return res.status(503).json({ status: "offline" });
-      }
+      const response = await fetch(`${base}/health`);
+      if (response.ok) return res.status(200).json({ status: 'online' });
+      return res.status(503).json({ status: 'offline' });
     } catch (error) {
-      return res.status(503).json({ 
-        error: "Backend service unavailable", 
-        message: "AI Support service (port 8001) is not running.",
-        fallback: true
-      });
+      return res.status(503).json({ status: 'offline', error: error.message });
     }
   }
 
   try {
-    const fetch = require("node-fetch");
-    
-    // Transform the request to match backend expectations
-    const backendRequest = {
-      user_id: req.body.userId || null,
-      job_description: req.body.jobDescription || req.body.job_description,
-      questions: req.body.questionHistory || req.body.questions || [],
-      answers: req.body.answerHistory || req.body.answers || []
-    };
-    
-    const base = process.env.NEXT_PUBLIC_AI_SUPPORT_URL || "http://localhost:8001";
-    const response = await fetch(`${base}/mock-interview/analyze`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(backendRequest),
-      timeout: 45000,
-    });
+    const body = req.body || {};
+    const action = body.action || (body.report ? 'report' : 'analyze');
 
-    if (!response.ok) {
-      throw new Error(`Backend responded with status: ${response.status}`);
+    if (action === 'report') {
+      const response = await fetch(`${base}/mock-interview/report`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          role: body.role || 'Software Engineer',
+          interview_type: body.interview_type || body.interviewType || 'mixed',
+          job_description: body.jobDescription || body.job_description || '',
+          qa_pairs: body.qa_pairs || body.qaPairs || [],
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        return res.status(response.status).json({ error: data.detail || data.error || 'Report failed' });
+      }
+      return res.status(200).json(data);
     }
 
-    const data = await response.json();
-    res.status(200).json(data);
-  } catch (error) {
-    console.error('Error connecting to Python backend:', error);
-    
-    // Return a fallback error response
-    res.status(503).json({ 
-      error: "Backend service unavailable", 
-      message: "AI Support service (port 8001) is not running. Please start the service and try again.",
-      fallback: true
+    // Single-answer analysis (preferred) or legacy batch
+    const backendRequest = body.question
+      ? {
+          question: body.question,
+          answer: body.answer,
+          role: body.role,
+          interview_type: body.interview_type || body.interviewType || 'mixed',
+          job_description: body.jobDescription || body.job_description || '',
+        }
+      : {
+          job_description: body.jobDescription || body.job_description || '',
+          questions: body.questionHistory || body.questions || [],
+          answers: body.answerHistory || body.answers || [],
+        };
+
+    const response = await fetch(`${base}/mock-interview/analyze`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(backendRequest),
     });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      return res.status(response.status).json({ error: data.detail || data.error || 'Analyze failed' });
+    }
+    return res.status(200).json(data);
+  } catch (error) {
+    console.error('mock-interview/analyze:', error);
+    return res.status(503).json({ error: 'AI Support unavailable', message: error.message });
   }
-} 
+}

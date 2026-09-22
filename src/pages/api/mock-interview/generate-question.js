@@ -1,63 +1,59 @@
 export default async function handler(req, res) {
-  if (req.method !== "POST") {
-    return res.status(405).json({ error: "Method not allowed" });
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  // Handle test requests for status checking
-  if (req.body.test) {
+  const base = process.env.NEXT_PUBLIC_AI_SUPPORT_URL || 'http://localhost:8001';
+
+  if (req.body?.test) {
     try {
-      const fetch = require("node-fetch");
-      const base = process.env.NEXT_PUBLIC_AI_SUPPORT_URL || "http://localhost:8001";
-      const response = await fetch(`${base}/health`, {
-        method: "GET",
-        timeout: 5000,
-      });
-      
-      if (response.ok) {
-        return res.status(200).json({ status: "online" });
-      } else {
-        return res.status(503).json({ status: "offline" });
-      }
+      const response = await fetch(`${base}/health`);
+      if (response.ok) return res.status(200).json({ status: 'online' });
+      return res.status(503).json({ status: 'offline', error: 'AI Support unhealthy' });
     } catch (error) {
-      return res.status(503).json({ 
-        error: "Backend service unavailable", 
-        message: "The Python backend service (port 8008) is not running.",
-        fallback: true
-      });
+      return res.status(503).json({ status: 'offline', error: error.message });
     }
   }
 
   try {
-    const fetch = require("node-fetch");
-    
-    // Transform the request to match backend expectations
+    const body = req.body || {};
+    const previous_qa_pairs =
+      body.previous_qa_pairs ||
+      body.previousQaPairs ||
+      (body.questionHistory || []).map((q, i) => ({
+        question: typeof q === 'string' ? q : q.text || q.question,
+        answer: (body.answerHistory || [])[i] || '',
+        score: (body.scoreHistory || [])[i],
+      }));
+
     const backendRequest = {
-      job_description: req.body.jobDescription || req.body.job_description,
-      previous_questions: req.body.questionHistory || req.body.previous_questions || []
+      role: body.role || body.targetRole,
+      interview_type: body.interview_type || body.interviewType || 'mixed',
+      question_number: body.question_number || body.questionNumber || (previous_qa_pairs.length + 1),
+      previous_qa_pairs,
+      job_description: body.jobDescription || body.job_description || '',
+      resume_text: body.resumeText || body.resume_text || '',
+      previous_questions: previous_qa_pairs.map((p) => p.question).filter(Boolean),
     };
-    
-    const base = process.env.NEXT_PUBLIC_AI_SUPPORT_URL || "http://localhost:8001";
+
     const response = await fetch(`${base}/mock-interview/question`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(backendRequest),
-      timeout: 30000,
     });
 
+    const data = await response.json().catch(() => ({}));
     if (!response.ok) {
-      throw new Error(`Backend responded with status: ${response.status}`);
+      return res.status(response.status).json({
+        error: data.detail || data.error || data.message || `AI Support ${response.status}`,
+      });
     }
-
-    const data = await response.json();
-    res.status(200).json(data);
+    return res.status(200).json(data);
   } catch (error) {
-    console.error('Error connecting to Python backend:', error);
-    
-    // Return a fallback error response
-    res.status(503).json({ 
-      error: "Backend service unavailable", 
-      message: "The Python backend service (port 8008) is not running. Please start the service and try again.",
-      fallback: true
+    console.error('mock-interview/generate-question:', error);
+    return res.status(503).json({
+      error: 'AI Support unavailable',
+      message: error.message,
     });
   }
-} 
+}

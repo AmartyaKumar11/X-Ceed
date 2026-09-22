@@ -33,8 +33,9 @@ export default function Sidebar({ role }) {
     { icon: <GraduationCap size={18} />, label: 'Prep Plans', href: '/dashboard/applicant/prep-plans' },
     { icon: <Target size={18} />, label: 'Career Plan', href: '/dashboard/applicant/career-plan' },
     { icon: <Video size={18} />, label: 'Mock Interview', href: '/dashboard/applicant/mock-interview' },
+    { icon: <FileText size={18} />, label: 'Quiz', href: '/quiz' },
+    { icon: <MessageSquare size={18} />, label: 'Video Assistant', href: '/video-ai-assistant' },
     { icon: <FileText size={18} />, label: 'Applications', href: '#' },
-    { icon: <MessageSquare size={18} />, label: 'Messages', href: '#' },
     { icon: <Bell size={18} />, label: 'Notifications', href: '#', onClick: () => setIsNotificationPanelOpen(true) },
     { icon: <Settings size={18} />, label: 'Settings', href: '#' },
   ] : [

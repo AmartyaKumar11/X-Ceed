@@ -248,6 +248,8 @@ class CareerState(TypedDict, total=False):
     projects: list
     resources: list
     youtube_raw: list
+    gap_videos: list
+    modules: list
     errors: list
     retry_count: int
 
@@ -300,6 +302,78 @@ PROJECTS_SYSTEM = """You are X-CEED's project recommender.
 Suggest portfolio projects that address weak areas.
 Return JSON: {projects: [{name: string, description: string, technologies: string[], addresses_gaps: string[]}]}.
 Valid JSON only."""
+
+MODULE_SEQUENCE_SYSTEM = """You are X-CEED's course sequencer.
+Given a skill gap and a list of YouTube videos (title, url, channel), order them into a logical learning progression:
+intro → concept → practice → project.
+Return JSON only:
+{videos: [{title, url, channel, order: int, description: string}]}.
+description must be 1-2 sentences explaining what the learner will gain.
+Keep only videos from the input list — do not invent URLs.
+Order 1..N. Prefer 3-5 videos.
+Valid JSON only."""
+
+
+GAP_QUERY_TEMPLATES = {
+    "missing": [
+        "beginner tutorial {skill}",
+        "{skill} crash course",
+        "{skill} for beginners",
+    ],
+    "weak": [
+        "{skill} advanced techniques",
+        "{skill} best practices",
+        "{skill} project tutorial",
+    ],
+    "under-evidenced": [
+        "{skill} portfolio project",
+        "build {skill} project",
+        "{skill} hands-on tutorial",
+    ],
+}
+
+
+def _normalize_gap_class(raw: str) -> str:
+    s = (raw or "").lower().strip().replace(" ", "_").replace("-", "_")
+    if "under" in s or "evidence" in s:
+        return "under-evidenced"
+    if "weak" in s or s in ("partial", "low"):
+        return "weak"
+    if "miss" in s or s in ("absent", "none", "skill_gap", ""):
+        return "missing"
+    return "missing"
+
+
+def _yt_search(query: str, max_results: int = 5) -> list:
+    if not YOUTUBE_API_KEY:
+        raise RuntimeError("YOUTUBE_API_KEY not configured")
+    r = httpx.get(
+        "https://www.googleapis.com/youtube/v3/search",
+        params={
+            "part": "snippet",
+            "q": query,
+            "type": "video",
+            "maxResults": max_results,
+            "key": YOUTUBE_API_KEY,
+        },
+        timeout=25.0,
+    )
+    r.raise_for_status()
+    out = []
+    for it in r.json().get("items", []):
+        vid = (it.get("id") or {}).get("videoId")
+        if not vid:
+            continue
+        sn = it.get("snippet") or {}
+        out.append({
+            "title": sn.get("title") or "",
+            "url": f"https://www.youtube.com/watch?v={vid}",
+            "video_id": vid,
+            "channel": sn.get("channelTitle") or "",
+            "thumbnail": ((sn.get("thumbnails") or {}).get("medium") or {}).get("url"),
+            "query": query,
+        })
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -665,55 +739,178 @@ def suggest_projects(state: CareerState) -> dict:
 
 
 def search_youtube_resources(state: CareerState) -> dict:
+    """Per-gap YouTube search with classification-specific queries. No mocks."""
+    if not YOUTUBE_API_KEY:
+        return {"gap_videos": [], "errors": (state.get("errors") or []) + ["YOUTUBE_API_KEY not configured"]}
+
     gaps = state.get("gaps") or []
-    skill = (gaps[0].get("requirement") if gaps else None) or state.get("target_role") or "software engineering"
-    items = []
-    if YOUTUBE_API_KEY:
-        try:
-            url = "https://www.googleapis.com/youtube/v3/search"
-            r = httpx.get(url, params={
-                "part": "snippet", "q": f"{skill} tutorial", "type": "video",
-                "maxResults": 8, "key": YOUTUBE_API_KEY,
-            }, timeout=20.0)
-            r.raise_for_status()
-            for it in r.json().get("items", []):
-                items.append({
-                    "title": it["snippet"]["title"],
-                    "url": f"https://www.youtube.com/watch?v={it['id']['videoId']}",
-                    "type": "youtube",
-                    "channel": it["snippet"].get("channelTitle"),
-                })
-        except Exception as e:
-            return {"youtube_raw": [], "errors": (state.get("errors") or []) + [str(e)]}
-    return {"youtube_raw": items}
+    if not gaps:
+        # synthesize a gap from target role so we still search something real
+        gaps = [{"requirement": state.get("target_role") or "software engineering", "classification": "missing", "priority": "high"}]
+
+    gap_videos = []
+    errors = list(state.get("errors") or [])
+    seen_ids = set()
+
+    for gap in gaps:
+        if not isinstance(gap, dict):
+            gap = {"requirement": str(gap), "classification": "missing", "priority": "medium"}
+        skill = (gap.get("requirement") or gap.get("skill") or "").strip()
+        if not skill:
+            continue
+        level = _normalize_gap_class(gap.get("classification") or gap.get("priority") or "")
+        templates = GAP_QUERY_TEMPLATES.get(level, GAP_QUERY_TEMPLATES["missing"])
+        collected = []
+        for tmpl in templates:
+            q = tmpl.format(skill=skill)
+            try:
+                for v in _yt_search(q, max_results=4):
+                    if v["video_id"] in seen_ids:
+                        continue
+                    seen_ids.add(v["video_id"])
+                    collected.append({**v, "skill": skill, "level": level})
+            except Exception as e:
+                errors.append(f"YouTube search failed for '{q}': {e}")
+        gap_videos.append({
+            "requirement": skill,
+            "classification": level,
+            "priority": gap.get("priority") or "medium",
+            "videos": collected,
+            "queries": [t.format(skill=skill) for t in templates],
+        })
+
+    return {"gap_videos": gap_videos, "youtube_raw": [], "errors": errors}
 
 
 def filter_resources(state: CareerState) -> dict:
-    raw = state.get("youtube_raw") or []
-    if not raw:
-        return {"resources": []}
-    questions = {}
-    for i, item in enumerate(raw[:10]):
-        questions[f"yt_{i}"] = Noul(
-            instructions=f"Is this educational and relevant for learning related to {state.get('target_role')}: {item.get('title')}?",
-        )
-    try:
-        _require_jev()
-        resp = jev_client.system_one(state={"role": state.get("target_role"), "gaps": state.get("gaps")}, questions=questions)
-        answers = _jev_answers(resp)
-        kept = []
-        for i, item in enumerate(raw[:10]):
-            if _jev_prob(answers.get(f"yt_{i}")) >= 0.45:
-                kept.append({**item, "relevance_score": _jev_prob(answers.get(f"yt_{i}"))})
-        return {"resources": kept or raw[:3]}
-    except Exception:
-        return {"resources": raw[:5]}
+    """Jev filters each video; discard below 0.6. No silent keep-all fallback."""
+    gap_videos = state.get("gap_videos") or []
+    if not gap_videos:
+        return {"gap_videos": [], "resources": [], "errors": (state.get("errors") or []) + ["No YouTube results to filter"]}
+
+    filtered = []
+    errors = list(state.get("errors") or [])
+
+    for mod in gap_videos:
+        videos = mod.get("videos") or []
+        skill = mod.get("requirement") or ""
+        level = mod.get("classification") or "missing"
+        if not videos:
+            filtered.append({**mod, "videos": []})
+            continue
+
+        questions = {}
+        for i, item in enumerate(videos[:12]):
+            questions[f"yt_{i}"] = Noul(
+                instructions=(
+                    f"Is this video a genuine educational resource for learning {skill} "
+                    f"at {level} level? Title: {item.get('title')}. Channel: {item.get('channel')}."
+                ),
+            )
+        try:
+            _require_jev()
+            resp = jev_client.system_one(
+                state={"skill": skill, "level": level, "role": state.get("target_role")},
+                questions=questions,
+            )
+            answers = _jev_answers(resp)
+            kept = []
+            for i, item in enumerate(videos[:12]):
+                prob = _jev_prob(answers.get(f"yt_{i}"))
+                if prob >= 0.6:
+                    kept.append({**item, "relevance_score": prob})
+            filtered.append({**mod, "videos": kept})
+        except Exception as e:
+            errors.append(f"Jev filter failed for {skill}: {e}")
+            # Spec: do not silently keep unfiltered fakes — leave empty for this gap
+            filtered.append({**mod, "videos": []})
+
+    flat = []
+    for m in filtered:
+        flat.extend(m.get("videos") or [])
+    return {"gap_videos": filtered, "resources": flat, "errors": errors}
 
 
 def curate_final_resources(state: CareerState) -> dict:
-    resources = state.get("resources") or []
-    resources = sorted(resources, key=lambda r: r.get("relevance_score", 0), reverse=True)[:8]
-    return {"resources": resources}
+    """DeepSeek sequences surviving videos per gap into learning modules."""
+    gap_videos = state.get("gap_videos") or []
+    modules = []
+    errors = list(state.get("errors") or [])
+    all_resources = []
+
+    for mod in gap_videos:
+        videos = mod.get("videos") or []
+        skill = mod.get("requirement") or ""
+        level = mod.get("classification") or "missing"
+        if not videos:
+            modules.append({
+                "requirement": skill,
+                "classification": level,
+                "priority": mod.get("priority"),
+                "queries": mod.get("queries") or [],
+                "videos": [],
+            })
+            continue
+        try:
+            response = deepseek_json.invoke([
+                {"role": "system", "content": MODULE_SEQUENCE_SYSTEM},
+                {"role": "user", "content": json.dumps({
+                    "skill": skill,
+                    "level": level,
+                    "target_role": state.get("target_role"),
+                    "videos": [{"title": v.get("title"), "url": v.get("url"), "channel": v.get("channel")} for v in videos[:10]],
+                }, default=str)},
+            ])
+            data = _parse_json_content(response.content)
+            sequenced = data.get("videos") or []
+            # Keep only real URLs from input set
+            allowed = {v.get("url") for v in videos}
+            cleaned = []
+            for i, v in enumerate(sequenced):
+                if v.get("url") not in allowed:
+                    continue
+                cleaned.append({
+                    "title": v.get("title"),
+                    "url": v.get("url"),
+                    "channel": v.get("channel"),
+                    "order": v.get("order") or (i + 1),
+                    "description": v.get("description") or "",
+                    "relevance_score": next((x.get("relevance_score") for x in videos if x.get("url") == v.get("url")), None),
+                })
+            cleaned = sorted(cleaned, key=lambda x: x.get("order") or 99)[:5]
+            if not cleaned:
+                # DeepSeek returned junk URLs — fall back to Jev-ranked order with empty descriptions forbidden;
+                # attach short DeepSeek-less placeholders only as order metadata from relevance
+                cleaned = [
+                    {
+                        "title": v.get("title"),
+                        "url": v.get("url"),
+                        "channel": v.get("channel"),
+                        "order": i + 1,
+                        "description": f"Curated {level}-level resource for {skill}.",
+                        "relevance_score": v.get("relevance_score"),
+                    }
+                    for i, v in enumerate(sorted(videos, key=lambda x: x.get("relevance_score") or 0, reverse=True)[:5])
+                ]
+            modules.append({
+                "requirement": skill,
+                "classification": level,
+                "priority": mod.get("priority"),
+                "queries": mod.get("queries") or [],
+                "videos": cleaned,
+            })
+            all_resources.extend(cleaned)
+        except Exception as e:
+            errors.append(f"DeepSeek sequence failed for {skill}: {e}")
+            modules.append({
+                "requirement": skill,
+                "classification": level,
+                "priority": mod.get("priority"),
+                "queries": mod.get("queries") or [],
+                "videos": [],
+            })
+
+    return {"modules": modules, "resources": all_resources, "errors": errors}
 
 
 # ---------------------------------------------------------------------------
@@ -896,15 +1093,27 @@ def gap(req: GapRequest):
 
 @app.post("/career-plan")
 def career_plan(req: CareerRequest):
+    if not YOUTUBE_API_KEY:
+        raise HTTPException(503, "YOUTUBE_API_KEY required for skill-gap course creation")
+    if not DEEPSEEK_API_KEY:
+        raise HTTPException(503, "DEEPSEEK_API_KEY required")
     result = cached_invoke(
         career_app,
         {"gaps": req.gaps, "target_role": req.target_role},
         "career",
     )
+    modules = result.get("modules") or []
+    if not any((m.get("videos") or []) for m in modules):
+        errs = result.get("errors") or []
+        raise HTTPException(
+            502,
+            "Career plan produced no curated YouTube modules. " + "; ".join(errs[:3]),
+        )
     return {
         "objectives": result.get("objectives"),
         "study_plan": result.get("study_plan"),
         "projects": result.get("projects"),
+        "modules": modules,
         "resources": result.get("resources"),
         "errors": result.get("errors") or [],
     }

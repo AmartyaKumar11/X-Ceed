@@ -138,17 +138,7 @@ function VideoAIAssistantInner() {
         const welcomeMessage = {
           id: 1,
           type: 'ai',
-          content: `Hi! I'm your AI video assistant. I can help you:
-
-• Create detailed notes and summaries
-• Clip specific sections of the video
-• Take screenshots of key moments
-• Save content to Google Drive
-• Answer questions about the video content
-
-**Want to stay organized?** I can create a dedicated Google Drive folder for this video project.
-
-What would you like me to help you with?`,
+          content: `Hi! I'm your AI video assistant. Loading transcript and generating notes…`,
           timestamp: new Date(),
           isWelcome: true,
           showProjectSetup: true
@@ -157,6 +147,48 @@ What would you like me to help you with?`,
         setMessages([welcomeMessage]);
         setCompletedMessages(new Set([1]));
         setShowFullContent(new Set([1]));
+
+        // Auto-generate notes on load (no button click)
+        try {
+          const notesRes = await fetch('/api/video-ai-assistant', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'auto_notes',
+              videoId: currentVideoId,
+              videoTitle: currentVideoTitle,
+              videoChannel: currentVideoChannel,
+            }),
+          });
+          const notesData = await notesRes.json();
+          if (notesRes.ok && notesData.success) {
+            const notesMsg = {
+              id: Date.now(),
+              type: 'ai',
+              content: notesData.response || notesData.notes?.notes || notesData.notes?.summary || 'Notes ready.',
+              timestamp: new Date(),
+              notes: notesData.notes,
+            };
+            setMessages((prev) => [...prev, notesMsg]);
+            setCompletedMessages((prev) => new Set([...prev, notesMsg.id]));
+            setShowFullContent((prev) => new Set([...prev, notesMsg.id]));
+          } else {
+            const errMsg = {
+              id: Date.now(),
+              type: 'ai',
+              content: `Could not auto-generate notes: ${notesData.error || notesRes.status}. You can still chat once a transcript is available.`,
+              timestamp: new Date(),
+            };
+            setMessages((prev) => [...prev, errMsg]);
+          }
+        } catch (e) {
+          setMessages((prev) => [...prev, {
+            id: Date.now(),
+            type: 'ai',
+            content: `Notes auto-load failed: ${e.message}`,
+            timestamp: new Date(),
+          }]);
+        }
       }
     };
 
