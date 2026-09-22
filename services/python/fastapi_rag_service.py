@@ -82,13 +82,13 @@ async def analyze_resume(request: AnalysisRequest):
                 "analysis": {
                     "comprehensiveAnalysis": analysis_result['analysis'],
                     "timestamp": analysis_result.get('timestamp'),
-                    "model": "llama-3.1-8b-instant",
+                    "model": "liquidai/lfm2.5-1.2b-thinking:free",
                     "ragEnabled": True
                 },
                 "metadata": {
                     "analyzedAt": analysis_result.get('timestamp'),
                     "jobTitle": request.job_title,
-                    "model": "llama-3.1-8b-instant",
+                    "model": "liquidai/lfm2.5-1.2b-thinking:free",
                     "ragEnabled": True
                 }
             }

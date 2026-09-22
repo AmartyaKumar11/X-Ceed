@@ -48,17 +48,42 @@ app.add_middleware(
 
 # Configure Gemini AI with your student subscription key
 GEMINI_QUIZ_API_KEY = os.getenv("GEMINI_QUIZ_API_KEY")
+
+# Debug: Check if key is loaded
+print(f"[DEBUG] GEMINI_QUIZ_API_KEY loaded: {bool(GEMINI_QUIZ_API_KEY)}")
+if GEMINI_QUIZ_API_KEY:
+    key_preview = f"{GEMINI_QUIZ_API_KEY[:4]}...{GEMINI_QUIZ_API_KEY[-4:]}" if len(GEMINI_QUIZ_API_KEY) > 8 else "***"
+    print(f"[DEBUG] Key preview: {key_preview}")
+    print(f"[DEBUG] Key length: {len(GEMINI_QUIZ_API_KEY)} characters")
+    print(f"[DEBUG] Starts with 'AIza': {GEMINI_QUIZ_API_KEY.startswith('AIza')}")
+else:
+    print("[DEBUG] GEMINI_QUIZ_API_KEY is None or empty!")
+
 if not GEMINI_QUIZ_API_KEY:
     raise ValueError("GEMINI_QUIZ_API_KEY not found in environment variables")
 
 # Initialize Gemini client
 genai.configure(api_key=GEMINI_QUIZ_API_KEY)
 
-# Use Gemini 1.5 Flash model (optimized for your student subscription)
-model = genai.GenerativeModel('gemini-1.5-flash')
-
-print(f"[INIT] Quiz Service initialized with Gemini 1.5 Flash (Student Subscription)")
-print(f"[KEY] API Key configured: {GEMINI_QUIZ_API_KEY[:10]}...")
+# Try Gemini 2.0 first, then 1.5-flash, then gemini-pro (with fallback chain)
+model_chain = [
+    'gemini-2.5-flash',          # Gemini 2.5 Flash (best performance, 5 RPM)
+    'gemini-2.5-flash-lite',     # Gemini 2.5 Flash Lite (higher rate limits, 10 RPM)
+    'gemini-3-flash',            # Gemini 3 Flash (if available)
+    'gemini-1.5-flash',          # Gemini 1.5 Flash (stable fallback)
+    'gemini-pro'                 # Gemini Pro (final fallback)
+]
+model = None
+for model_name in model_chain:
+    try:
+        model = genai.GenerativeModel(model_name)
+        print(f"[INIT] Quiz Service initialized with model: {model_name}")
+        break
+    except Exception as e:
+        print(f"[DEBUG] Model {model_name} not available: {type(e).__name__}")
+        continue
+if not model:
+    raise Exception("Failed to initialize any Gemini model")
 
 # Data Models
 class QuizQuestion(BaseModel):

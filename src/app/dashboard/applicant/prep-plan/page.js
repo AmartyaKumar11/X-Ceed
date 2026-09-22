@@ -34,7 +34,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Input } from "@/components/ui/input";
 import LearningPathPreview from "@/components/learning-path/LearningPathPreview";
 import PayoutCalculator from "@/components/gamification/PayoutCalculator";
-import SkillFilterDebug from "@/components/debug/SkillFilterDebug";
 import { skillFilter } from "@/lib/skillFilter";
 
 function PrepPlanPageInner() {
@@ -1297,11 +1296,6 @@ function PrepPlanPageInner() {
             </div>
           </CardContent>
         </Card>
-
-        {/* Skill Filtering Debug */}
-        {prepPlan?.overview?.gapAnalysis && (
-          <SkillFilterDebug gapAnalysis={prepPlan.overview.gapAnalysis} />
-        )}
 
         {/* Parsed Skills Section */}
         {parsedSkills && (

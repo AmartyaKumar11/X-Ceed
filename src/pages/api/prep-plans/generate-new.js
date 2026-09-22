@@ -59,7 +59,7 @@ Return JSON format:
         'X-Title': 'X-CEED Prep Plan Generator'
       },
       body: JSON.stringify({
-        model: 'meta-llama/llama-3.2-3b-instruct:free',
+        model: 'liquidai/lfm2.5-1.2b-thinking:free',
         messages: [
           {
             role: 'user',

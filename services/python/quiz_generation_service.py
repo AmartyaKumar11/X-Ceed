@@ -37,10 +37,25 @@ if not GEMINI_QUIZ_API_KEY:
 # Initialize Gemini client
 genai.configure(api_key=GEMINI_QUIZ_API_KEY)
 
-# Use Gemini 1.5 Flash model (optimized for your student subscription)
-model = genai.GenerativeModel('gemini-1.5-flash')
-
-print(f"🚀 Quiz Service initialized with Gemini 1.5 Flash (Student Subscription)")
+# Try Gemini 2.0 first, then 1.5-flash, then gemini-pro (with fallback chain)
+model_chain = [
+    'gemini-2.5-flash',          # Gemini 2.5 Flash (best performance, 5 RPM)
+    'gemini-2.5-flash-lite',     # Gemini 2.5 Flash Lite (higher rate limits, 10 RPM)
+    'gemini-3-flash',            # Gemini 3 Flash (if available)
+    'gemini-1.5-flash',          # Gemini 1.5 Flash (stable fallback)
+    'gemini-pro'                 # Gemini Pro (final fallback)
+]
+model = None
+for model_name in model_chain:
+    try:
+        model = genai.GenerativeModel(model_name)
+        print(f"🚀 Quiz Service initialized with model: {model_name}")
+        break
+    except Exception as e:
+        print(f"[DEBUG] Model {model_name} not available: {type(e).__name__}")
+        continue
+if not model:
+    raise Exception("Failed to initialize any Gemini model")
 print(f"🔑 API Key configured: {GEMINI_QUIZ_API_KEY[:10]}...")
 print(f"📝 Using API key from: {'GEMINI_QUIZ_API_KEY' if os.getenv('GEMINI_QUIZ_API_KEY') else 'GEMINI_API_KEY'}")
 

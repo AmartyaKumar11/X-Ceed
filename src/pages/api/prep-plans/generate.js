@@ -262,7 +262,7 @@ Return this exact JSON structure with ${durationWeeks}-week timeline adaptation:
       const freeModels = [
         'microsoft/phi-3-mini-128k-instruct:free',  // Best for educational content and long context
         'google/gemma-2-9b-it:free',                // Most powerful for complex reasoning
-        'meta-llama/llama-3.2-3b-instruct:free'    // Fast and reliable fallback
+        'liquidai/lfm2.5-1.2b-thinking:free'    // Fast and reliable fallback
       ];
 
       let response = null;

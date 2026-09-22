@@ -1,4 +1,4 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+﻿# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
 # dependencies
 /node_modules
@@ -48,7 +48,6 @@ env.local
 .env.development
 .env.test
 *.key
-*.pem
 *.p12
 *.pfx
 secrets.json
@@ -107,7 +106,6 @@ coverage.xml
 .venv
 env/
 venv/
-ENV/
 env.bak/
 venv.bak/
 
@@ -119,7 +117,6 @@ venv.bak/
 *~
 
 # OS
-.DS_Store
 .DS_Store?
 ._*
 .Spotlight-V100
@@ -130,9 +127,6 @@ Thumbs.db
 # Logs
 *.log
 logs/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
@@ -157,10 +151,6 @@ temp/
 .htaccess
 *.crt
 *.csr
-*.key
-*.pem
-*.p12
-*.pfx
 *.jks
 *.keystore
 
@@ -184,7 +174,6 @@ bfg*.jar
 *.bfg-report/
 
 node_modules
-.env
 
 # Hardhat files
 /cache
@@ -195,19 +184,15 @@ node_modules
 /typechain-types
 
 # solidity-coverage files
-/coverage
 /coverage.json
 
 # Hardhat Ignition default folder for deployments against a local node
 ignition/deployments/chain-31337
 
-
 # Phase 1 deploy bible
 _dev/
 *.pdf
 !docs/**/*.pdf
-bfg*.jar
-__pycache__/
 .venv/
 artifacts/
 cache/
@@ -215,3 +200,11 @@ public/uploads/
 .env.local.backup
 .env.local.new
 .env.local.old
+
+# Junk / local archives (cleanup)
+debug/
+testing/
+check/
+debug-tools/
+!test/data/
+!test/data/**

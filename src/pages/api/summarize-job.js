@@ -36,15 +36,17 @@ export default async function handler(req, res) {
     }
 
     try {
-      // Use Groq API to summarize the job description
-      const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      // Use OpenRouter API (LiquidAI) to summarize the job description
+      const openrouterResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
+          'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
           'Content-Type': 'application/json',
+          'HTTP-Referer': process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3002',
+          'X-Title': 'X-CEED Job Summary'
         },
         body: JSON.stringify({
-          model: 'llama3-8b-8192',
+          model: 'liquidai/lfm2.5-1.2b-thinking:free',
           messages: [
             {
               role: 'system',
@@ -60,12 +62,12 @@ export default async function handler(req, res) {
         }),
       });
 
-      if (!groqResponse.ok) {
-        throw new Error(`Groq API error: ${groqResponse.status}`);
+      if (!openrouterResponse.ok) {
+        throw new Error(`OpenRouter API error: ${openrouterResponse.status}`);
       }
 
-      const groqResult = await groqResponse.json();
-      const summary = groqResult.choices?.[0]?.message?.content?.trim();
+      const openrouterResult = await openrouterResponse.json();
+      const summary = openrouterResult.choices?.[0]?.message?.content?.trim();
 
       if (!summary) {
         throw new Error('No summary generated');
@@ -76,8 +78,8 @@ export default async function handler(req, res) {
         summary: summary
       });
 
-    } catch (groqError) {
-      console.error('Groq API error:', groqError);
+    } catch (openrouterError) {
+      console.error('OpenRouter API error:', openrouterError);
       
       // Fallback: create a simple truncated summary
       const sentences = description.split(/[.!?]+/).filter(s => s.trim().length > 0);

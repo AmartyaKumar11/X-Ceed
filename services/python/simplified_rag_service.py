@@ -1,6 +1,6 @@
 """
 Simplified FastAPI RAG Service for X-ceed Resume Analysis
-Uses direct Groq API calls instead of complex LangChain setup
+Uses OpenRouter API with LiquidAI LFM2.5-1.2B-Thinking model
 """
 
 from fastapi import FastAPI, HTTPException
@@ -12,6 +12,14 @@ import requests
 import json
 from dotenv import load_dotenv
 
+# Import vector RAG core
+try:
+    from resume_analyzer_core import ResumeAnalyzerCore
+    VECTOR_RAG_AVAILABLE = True
+except ImportError as e:
+    print(f"[WARN] Vector RAG not available: {e}. Continuing with prompt-based RAG only.")
+    VECTOR_RAG_AVAILABLE = False
+
 # Load environment variables
 import os
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -19,25 +27,12 @@ env_file_path = os.path.join(project_root, '.env.local')
 print(f"Loading environment variables from: {env_file_path}")
 load_dotenv(env_file_path)
 load_dotenv()  # Also load from .env as fallback
-print(f"Environment variables loaded. GROQ_API_KEY present: {bool(os.getenv('GROQ_API_KEY'))}")
+print(f"Environment variables loaded. OPENROUTER_API_KEY present: {bool(os.getenv('OPENROUTER_API_KEY'))}")
 
-# Multiple API keys for rate limit handling
-
-# Load Groq API keys securely from environment variables only
-# Example: set GROQ_API_KEY_1, GROQ_API_KEY_2, ... in your .env.local or environment
-GROQ_API_KEYS = []
-for i in range(1, 10):  # Support up to 9 keys, adjust as needed
-    key = os.getenv(f'GROQ_API_KEY_{i}')
-    if key:
-        GROQ_API_KEYS.append(key)
-# Fallback to single key for backward compatibility
-single_key = os.getenv('GROQ_API_KEY')
-if single_key:
-    GROQ_API_KEYS.append(single_key)
-
-GROQ_API_KEYS = [key for key in GROQ_API_KEYS if key]  # Remove None values
-print(f"Available API keys: {len(GROQ_API_KEYS)} (loaded from environment only)")
-current_key_index = 0
+# OpenRouter API configuration
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
+LIQUIDAI_MODEL = "liquidai/lfm2.5-1.2b-thinking:free"
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -55,31 +50,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Groq API configuration
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
-
-def get_next_groq_key():
-    """Get the next available API key (with rotation)"""
-    global current_key_index
-    if not GROQ_API_KEYS:
-        raise HTTPException(status_code=500, detail="No GROQ API keys configured")
-    
-    key = GROQ_API_KEYS[current_key_index]
-    current_key_index = (current_key_index + 1) % len(GROQ_API_KEYS)
-    return key
-
-def rotate_to_next_key():
-    """Force rotation to next key when rate limited"""
-    global current_key_index
-    if len(GROQ_API_KEYS) > 1:
-        current_key_index = (current_key_index + 1) % len(GROQ_API_KEYS)
-        print(f"[INFO] Rotated to API key #{current_key_index + 1}")
-        return True
-    return False
+# OpenRouter API configuration (using LiquidAI model)
 
 # Global session storage (in production, use proper session management)
 session_data = {}
+
+# Setup persistent vector storage directory
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+VECTOR_STORES_DIR = os.path.join(project_root, 'data', 'vector_stores')
+os.makedirs(VECTOR_STORES_DIR, exist_ok=True)
+print(f"[INFO] Vector stores directory: {VECTOR_STORES_DIR}")
 
 # Pydantic models
 class AnalysisRequest(BaseModel):
@@ -99,16 +79,20 @@ class AnalysisResponse(BaseModel):
     data: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
 
-def call_groq_api(messages, model="llama-3.1-8b-instant", temperature=0.1, max_retries=2):
-    """Make a direct call to Groq API with key rotation on rate limits"""
-    if not GROQ_API_KEYS:
-        raise HTTPException(status_code=500, detail="GROQ_API_KEY not configured")
+def call_openrouter_api(messages, model=None, temperature=0.1, max_retries=2):
+    """Make a direct call to OpenRouter API with LiquidAI model"""
+    if not OPENROUTER_API_KEY:
+        raise HTTPException(status_code=500, detail="OPENROUTER_API_KEY not configured")
+    
+    # Use LiquidAI model by default
+    model = model or LIQUIDAI_MODEL
     
     for attempt in range(max_retries):
-        current_key = get_next_groq_key()
         headers = {
-            "Authorization": f"Bearer {current_key}",
-            "Content-Type": "application/json"
+            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": os.getenv("NEXT_PUBLIC_BASE_URL", "http://localhost:3002"),
+            "X-Title": "X-CEED Resume Analysis"
         }
         
         payload = {
@@ -118,55 +102,55 @@ def call_groq_api(messages, model="llama-3.1-8b-instant", temperature=0.1, max_r
             "max_tokens": 4000
         }
         
-        print(f"[DEBUG] Attempt {attempt + 1}/{max_retries} - Using API key #{current_key_index}")
-        print(f"[DEBUG] Calling Groq API with model: {model}")
+        print(f"[DEBUG] Attempt {attempt + 1}/{max_retries}")
+        print(f"[DEBUG] Calling OpenRouter API with model: {model}")
         print(f"[DEBUG] Messages count: {len(messages)}")
         print(f"[DEBUG] Message preview: {str(messages[0])[:200]}...")
         
         try:
-            response = requests.post(GROQ_API_URL, headers=headers, json=payload, timeout=30)
-            print(f"[DEBUG] Groq response status: {response.status_code}")
+            response = requests.post(OPENROUTER_API_URL, headers=headers, json=payload, timeout=60)
+            print(f"[DEBUG] OpenRouter response status: {response.status_code}")
             
             if response.status_code == 200:
                 result = response.json()
                 if "choices" not in result or not result["choices"]:
-                    print(f"[ERROR] Invalid Groq response format: {result}")
-                    raise HTTPException(status_code=500, detail="Invalid response format from Groq API")
+                    print(f"[ERROR] Invalid OpenRouter response format: {result}")
+                    raise HTTPException(status_code=500, detail="Invalid response format from OpenRouter API")
                 return result["choices"][0]["message"]["content"]
             
             elif response.status_code == 429:
-                print(f"[WARNING] Rate limit hit with key #{current_key_index}")
-                print(f"[ERROR] Groq API error response: {response.text}")
+                print(f"[WARNING] Rate limit hit on attempt {attempt + 1}")
+                print(f"[ERROR] OpenRouter API error response: {response.text}")
                 
-                if attempt < max_retries - 1 and rotate_to_next_key():
-                    print(f"[INFO] Retrying with next API key...")
+                if attempt < max_retries - 1:
+                    print(f"[INFO] Retrying...")
                     continue
                 else:
-                    print(f"[ERROR] All API keys rate limited or no more keys available")
-                    raise HTTPException(status_code=429, detail="All API keys rate limited. Please try again later.")
+                    print(f"[ERROR] Rate limited after all retries")
+                    raise HTTPException(status_code=429, detail="OpenRouter API rate limited. Please try again later.")
             
             else:
-                print(f"[ERROR] Groq API error response: {response.text}")
+                print(f"[ERROR] OpenRouter API error response: {response.text}")
                 response.raise_for_status()
                 
         except requests.exceptions.Timeout:
-            print(f"[ERROR] Groq API timeout on attempt {attempt + 1}")
+            print(f"[ERROR] OpenRouter API timeout on attempt {attempt + 1}")
             if attempt == max_retries - 1:
-                raise HTTPException(status_code=500, detail="Groq API timeout")
+                raise HTTPException(status_code=500, detail="OpenRouter API timeout")
             continue
             
         except requests.exceptions.RequestException as e:
-            print(f"[ERROR] Groq API request failed: {str(e)}")
+            print(f"[ERROR] OpenRouter API request failed: {str(e)}")
             if hasattr(e, 'response') and e.response is not None:
                 print(f"[ERROR] Response status: {e.response.status_code}")
                 print(f"[ERROR] Response text: {e.response.text}")
             
             if attempt == max_retries - 1:
-                raise HTTPException(status_code=500, detail=f"Groq API error: {str(e)}")
+                raise HTTPException(status_code=500, detail=f"OpenRouter API error: {str(e)}")
             continue
     
     # If we get here, all attempts failed
-    raise HTTPException(status_code=500, detail="All Groq API attempts failed")
+    raise HTTPException(status_code=500, detail="All OpenRouter API attempts failed")
 
 @app.get("/")
 async def root():
@@ -174,7 +158,8 @@ async def root():
     return {
         "service": "X-ceed Resume Analyzer API (Simplified)",
         "status": "running",
-        "groq_configured": bool(GROQ_API_KEY),
+        "openrouter_configured": bool(OPENROUTER_API_KEY),
+        "model": LIQUIDAI_MODEL,
         "version": "1.0.0"
     }
 
@@ -198,7 +183,37 @@ async def analyze_resume(request: AnalysisRequest):
             "job_description": request.job_description,
             "job_title": request.job_title,
             "job_requirements": request.job_requirements
-        }        # Create enhanced structured analysis prompt that returns detailed JSON data
+        }
+        
+        # Initialize vector RAG if available (for chat retrieval)
+        vector_analyzer = None
+        if VECTOR_RAG_AVAILABLE:
+            try:
+                # Create persistent directory for this session
+                session_vector_dir = os.path.join(VECTOR_STORES_DIR, f"session_{session_id}")
+                os.makedirs(session_vector_dir, exist_ok=True)
+                
+                # Initialize vector analyzer with persistent storage
+                vector_analyzer = ResumeAnalyzerCore(persist_directory=session_vector_dir)
+                
+                # Process documents for vector retrieval
+                print(f"[INFO] Processing documents for vector RAG...")
+                vector_success = vector_analyzer.process_documents(
+                    request.resume_text,
+                    request.job_description
+                )
+                
+                if vector_success:
+                    print(f"[INFO] Vector RAG initialized successfully for session {session_id}")
+                    session_data[session_id]["vector_analyzer"] = vector_analyzer
+                else:
+                    print(f"[WARN] Vector RAG processing failed, continuing with prompt-based only")
+                    vector_analyzer = None
+            except Exception as e:
+                print(f"[WARN] Vector RAG initialization failed: {str(e)}. Continuing with prompt-based RAG.")
+                vector_analyzer = None
+        
+        # Create enhanced structured analysis prompt that returns detailed JSON data
         analysis_prompt = f"""
 You are an expert HR professional and career advisor with 15+ years of experience in technical recruiting and resume analysis. Your task is to conduct a comprehensive, meticulous analysis of this resume against the job requirements.
 
@@ -378,8 +393,8 @@ Return ONLY the JSON object, no other text or formatting.
             {"role": "user", "content": analysis_prompt}
         ]
         
-        # Get analysis from Groq
-        analysis_result = call_groq_api(messages)
+        # Get analysis from OpenRouter (LiquidAI)
+        analysis_result = call_openrouter_api(messages)
         
         # Try to parse the JSON response
         try:
@@ -392,13 +407,13 @@ Return ONLY the JSON object, no other text or formatting.
                     "analysis": {
                         "structuredAnalysis": structured_analysis,
                         "timestamp": "2025-06-15T18:00:00.000Z",
-                        "model": "llama-3.1-8b-instant",
+                        "model": LIQUIDAI_MODEL,
                         "ragEnabled": True
                     },
                     "metadata": {
                         "analyzedAt": "2025-06-15T18:00:00.000Z",
                         "jobTitle": request.job_title,
-                        "model": "llama-3.1-8b-instant",
+                        "model": LIQUIDAI_MODEL,
                         "ragEnabled": True
                     }
                 }
@@ -410,13 +425,13 @@ Return ONLY the JSON object, no other text or formatting.
                 data={                    "analysis": {
                         "comprehensiveAnalysis": analysis_result,
                         "timestamp": "2025-06-15T18:00:00.000Z",
-                        "model": "llama-3.1-8b-instant",
+                        "model": LIQUIDAI_MODEL,
                         "ragEnabled": True
                     },
                     "metadata": {
                         "analyzedAt": "2025-06-15T18:00:00.000Z",
                         "jobTitle": request.job_title,
-                        "model": "llama-3.1-8b-instant",
+                        "model": LIQUIDAI_MODEL,
                         "ragEnabled": True
                     }
                 }
@@ -656,8 +671,8 @@ async def chat_with_resume(request: ChatRequest):
             if analysis_result:
                 # Include more analysis context
                 analysis_excerpt = analysis_result[:500] if len(analysis_result) > 500 else analysis_result
-                analysis_context += f"**Previous Analysis Summary:** {analysis_excerpt}...\n"          # Create natural conversational prompt for Groq
-        # Build the conversation messages for Groq API
+                analysis_context += f"**Previous Analysis Summary:** {analysis_excerpt}...\n"          # Create natural conversational prompt for OpenRouter (LiquidAI)
+        # Build the conversation messages for OpenRouter API
         messages = [
             {
                 "role": "system", 
@@ -698,8 +713,8 @@ Remember: You're having a conversation, not giving a lecture. Let the user guide
             "role": "user",
             "content": request.question
         })        
-        # Call Groq API for natural conversation
-        chat_response = call_groq_api(messages, temperature=0.7)  # Higher temperature for more natural responses
+        # Call OpenRouter API (LiquidAI) for natural conversation
+        chat_response = call_openrouter_api(messages, temperature=0.7)  # Higher temperature for more natural responses
         
         return AnalysisResponse(
             success=True,
@@ -752,8 +767,8 @@ Provide a focused, actionable response.
             {"role": "user", "content": prompt}
         ]
         
-        # Get response from Groq
-        analysis_result = call_groq_api(messages)
+        # Get response from OpenRouter (LiquidAI)
+        analysis_result = call_openrouter_api(messages)
         
         return AnalysisResponse(
             success=True,
@@ -773,9 +788,10 @@ Provide a focused, actionable response.
 async def get_status():
     """Get service status"""
     return {
-        "ready": bool(GROQ_API_KEY),
+        "ready": bool(OPENROUTER_API_KEY),
         "active_sessions": len(session_data),
-        "groq_configured": bool(GROQ_API_KEY)
+        "openrouter_configured": bool(OPENROUTER_API_KEY),
+        "model": LIQUIDAI_MODEL
     }
 
 @app.post("/clear-session")
@@ -795,7 +811,8 @@ if __name__ == "__main__":
     print("Starting X-ceed Resume Analyzer API (Simplified)...")
     print("API will be available at: http://localhost:8000")
     print("API docs will be available at: http://localhost:8000/docs")
-    print(f"Groq API configured: {bool(GROQ_API_KEY)}")
+    print(f"OpenRouter API configured: {bool(OPENROUTER_API_KEY)}")
+    print(f"Using model: {LIQUIDAI_MODEL}")
     
     uvicorn.run(
         "simplified_rag_service:app",

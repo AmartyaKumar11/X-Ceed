@@ -1,28 +1,6 @@
-# Core FastAPI and server requirements
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
-
-# PDF processing
-pdfplumber==0.10.0
-
-# Database
-pymongo==4.6.0
-
-# HTTP requests
-requests==2.31.0
-
-# Environment variables
-python-dotenv==1.0.0
-
-# AI/ML libraries
-google-generativeai==0.3.0
-
-# Video processing
-youtube-transcript-api==0.6.0
-
-# Additional useful packages
-pydantic==2.5.0
-python-multipart==0.0.6
-
-# Optional: For better development experience
-python-json-logger==2.0.7
+# X-CEED Python deps — prefer service-specific files:
+#   services/python/requirements-ai-core.txt
+#   services/python/requirements-ai-support.txt
+# This root file is a thin pointer for `pip install -r requirements.txt`.
+-r services/python/requirements-ai-core.txt
+-r services/python/requirements-ai-support.txt

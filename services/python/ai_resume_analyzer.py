@@ -33,11 +33,40 @@ class AIResumeAnalyzer:
     def __init__(self):
         # Set up Gemini
         gemini_api_key = os.getenv('GEMINI_API_KEY')
+        
+        # Debug: Check if key is loaded
+        print(f"[DEBUG] GEMINI_API_KEY loaded: {bool(gemini_api_key)}")
+        if gemini_api_key:
+            key_preview = f"{gemini_api_key[:4]}...{gemini_api_key[-4:]}" if len(gemini_api_key) > 8 else "***"
+            print(f"[DEBUG] Key preview: {key_preview}")
+            print(f"[DEBUG] Key length: {len(gemini_api_key)} characters")
+            print(f"[DEBUG] Starts with 'AIza': {gemini_api_key.startswith('AIza')}")
+        else:
+            print("[DEBUG] GEMINI_API_KEY is None or empty!")
+        
         if not gemini_api_key:
             raise ValueError("GEMINI_API_KEY not found in environment variables")
         
         genai.configure(api_key=gemini_api_key)
-        self.model = genai.GenerativeModel('gemini-1.5-flash')
+        # Try Gemini 2.0 first, then 1.5-flash, then gemini-pro (with fallback chain)
+        model_chain = [
+            'gemini-2.5-flash',          # Gemini 2.5 Flash (best performance, 5 RPM)
+            'gemini-2.5-flash-lite',     # Gemini 2.5 Flash Lite (higher rate limits, 10 RPM)
+            'gemini-3-flash',            # Gemini 3 Flash (if available)
+            'gemini-1.5-flash',          # Gemini 1.5 Flash (stable fallback)
+            'gemini-pro'                 # Gemini Pro (final fallback)
+        ]
+        self.model = None
+        for model_name in model_chain:
+            try:
+                self.model = genai.GenerativeModel(model_name)
+                print(f"[INFO] Resume Analyzer using model: {model_name}")
+                break
+            except Exception as e:
+                print(f"[DEBUG] Model {model_name} not available: {type(e).__name__}")
+                continue
+        if not self.model:
+            raise Exception("Failed to initialize any Gemini model")
     
     def analyze_resume_for_job(self, resume_text: str, job_description: str, job_requirements: Dict) -> Dict[str, Any]:
         """

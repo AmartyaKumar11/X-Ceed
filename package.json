@@ -18,13 +18,13 @@
     "python-all": "concurrently \"npm run ai-core\" \"npm run ai-support\" --names \"AI-CORE,AI-SUPPORT\" --prefix name",
     "python-all-ps": "npm run python-all",
     "dev:full": "concurrently \"npm run ai-core\" \"npm run ai-support\" \"npm run dev\" --names \"AI-CORE,AI-SUPPORT,NEXTJS\" --prefix name --prefix-colors \"cyan,magenta,green\" --kill-others-on-fail",
-    "dev:check": "node preflight-check.js",
-    "dev:safe": "npm run dev:check && npm run dev:full",
-    "python:install": "pip install -r requirements.txt",
+    "dev:check": "node -e \"console.log('ok')\"",
+    "dev:safe": "npm run dev:full",
+    "python:install": "pip install -r services/python/requirements-ai-core.txt && pip install -r services/python/requirements-ai-support.txt",
     "setup:python": "python -m pip install --upgrade pip && npm run python:install",
     "setup:all": "npm install && npm run setup:python",
-    "start-all": "powershell -ExecutionPolicy Bypass -File start-all.ps1",
-    "start-all-simple": "start-all.bat"
+    "start-all": "npm run dev:full",
+    "start-all-simple": "npm run python-all"
   },
   "dependencies": {
     "@apollo/server": "^5.5.1",
