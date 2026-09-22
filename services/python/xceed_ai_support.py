@@ -14,9 +14,13 @@ from typing import Optional
 
 import httpx
 from dotenv import load_dotenv
+import logging
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from langchain_openai import ChatOpenAI
+
+logger = logging.getLogger("xceed-support")
 from pydantic import BaseModel, Field
 
 _ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -112,6 +116,7 @@ class MockQuestionRequest(BaseModel):
     job_description: Optional[str] = None
     resume_text: Optional[str] = None
     previous_questions: list = Field(default_factory=list)  # legacy
+    user_id: Optional[str] = None  # P1.5: for session memory
 
 
 class MockAnalyzeRequest(BaseModel):
@@ -129,6 +134,7 @@ class MockReportRequest(BaseModel):
     interview_type: str = "mixed"
     qa_pairs: list
     job_description: Optional[str] = None
+    user_id: Optional[str] = None  # P1.5: for session memory
 
 
 class VideoChatRequest(BaseModel):
@@ -182,10 +188,74 @@ def root():
     }
 
 
+# ponytail: P1.1 adaptive quiz — fetch user's past scores on this topic
+def _get_quiz_history(user_id: str | None, topic: str, limit: int = 3) -> list:
+    """Get recent quiz results for a user on a topic."""
+    if not user_id:
+        return []
+    try:
+        db = _mongo()
+        if db is None:
+            return []
+        # Query quiz_history collection for this user + topic
+        cursor = db.quiz_history.find(
+            {"user_id": user_id, "topic": {"$regex": topic, "$options": "i"}},
+            sort=[("timestamp", -1)],
+            limit=limit
+        )
+        return list(cursor)
+    except Exception as e:
+        logger.warning(f"Quiz history fetch failed: {e}")
+        return []
+
+
+def _build_adaptive_context(past_quizzes: list) -> str:
+    """Build prompt context from past quiz performance."""
+    if not past_quizzes:
+        return ""
+    
+    scores = [q.get("score", 0) for q in past_quizzes]
+    wrong_topics = []
+    for q in past_quizzes:
+        wrong_topics.extend(q.get("wrong_topics", []))
+    # Deduplicate
+    wrong_topics = list(set(wrong_topics))[:10]
+    
+    last_score = scores[0] if scores else 50
+    
+    context = f"""
+This user has taken {len(past_quizzes)} previous quizzes on this topic.
+Most recent scores: {scores}.
+Topics they got wrong previously: {wrong_topics if wrong_topics else 'none recorded'}.
+
+Rules based on history:
+"""
+    if last_score < 50:
+        context += f"""- Their last score was {last_score}% (below 50%): keep the same difficulty but include 2 questions specifically on their weak topics: {wrong_topics}
+- Focus on fundamentals they're struggling with"""
+    elif last_score < 80:
+        context += f"""- Their last score was {last_score}% (50-80%): increase difficulty slightly and include 1 question on their weak topics
+- Mix foundational and intermediate concepts"""
+    else:
+        context += f"""- Their last score was {last_score}% (above 80%): increase difficulty significantly
+- Test edge cases, advanced concepts, and tricky scenarios
+- Include questions that even experienced developers might find challenging"""
+    
+    context += """
+- NEVER repeat a question they've seen before. Generate completely new questions.
+"""
+    return context
+
+
 @app.post("/quiz/generate")
 def quiz_generate(req: QuizGenerateRequest):
     _require_deepseek()
     n = req.question_count or req.num_questions or 5
+    
+    # P1.1: Get user's quiz history for adaptive difficulty
+    past_quizzes = _get_quiz_history(req.user_id, req.topic)
+    adaptive_context = _build_adaptive_context(past_quizzes)
+    
     system = """You generate unique educational quizzes. NEVER reuse stock questions.
 Return JSON:
 {questions: [{id: int, question: string, options: string[4], correct_index: int (0-3),
@@ -197,10 +267,16 @@ Rules:
 - Prefer scenario-based questions that test understanding
 - wrong_explanations[i] must explain option i
 - Valid JSON only. Make questions distinct from common textbook examples."""
+    
     user = (
         f"Topic: {req.topic}\nDifficulty: {req.difficulty}\nNum questions: {n}\n"
         f"Nonce: {uuid.uuid4()} — generate a fresh unique set."
     )
+    
+    # Add adaptive context from history
+    if adaptive_context:
+        user += f"\n{adaptive_context}"
+    
     if req.context:
         user += f"\nLearner context / prep plan:\n{req.context[:4000]}"
     if req.transcript:
@@ -221,6 +297,7 @@ Rules:
             "difficulty": req.difficulty,
             "questions": questions,
             "created_at": datetime.utcnow().isoformat(),
+            "adaptive": bool(past_quizzes),  # Flag if this was adapted
         }
         try:
             db = _mongo()
@@ -233,6 +310,84 @@ Rules:
         raise
     except Exception as e:
         raise HTTPException(500, f"Quiz generation failed: {e}")
+
+
+# ponytail: P0.3 streaming quiz — generates each question individually and sends as SSE
+@app.post("/quiz/generate/stream")
+async def quiz_generate_stream(req: QuizGenerateRequest):
+    """Streaming quiz generation — sends each question as it's generated."""
+    _require_deepseek()
+    n = req.question_count or req.num_questions or 5
+    quiz_id = str(uuid.uuid4())
+    
+    async def event_generator():
+        questions = []
+        try:
+            # Send quiz metadata first
+            yield f"data: {json.dumps({'type': 'meta', 'data': {'quiz_id': quiz_id, 'topic': req.topic, 'difficulty': req.difficulty, 'total': n}})}\n\n"
+            
+            # Generate questions one at a time for faster perceived response
+            single_q_system = """Generate ONE unique educational quiz question.
+Return JSON:
+{question: string, options: string[4], correct_index: int (0-3),
+  explanation: string,
+  wrong_explanations: string[4]  // why each option is wrong; for correct index say "This is correct because ..."
+}
+Rules:
+- Exactly 4 options, exactly one correct_index
+- Prefer scenario-based questions that test understanding
+- Valid JSON only."""
+            
+            for i in range(n):
+                user = (
+                    f"Topic: {req.topic}\nDifficulty: {req.difficulty}\n"
+                    f"Question number: {i+1} of {n}\nNonce: {uuid.uuid4()}"
+                )
+                if req.context:
+                    user += f"\nContext:\n{req.context[:2000]}"
+                if questions:
+                    user += f"\nPrevious questions (DO NOT REPEAT): {[q.get('question','')[:50] for q in questions]}"
+                
+                try:
+                    r = deepseek_json.invoke([
+                        {"role": "system", "content": single_q_system},
+                        {"role": "user", "content": user},
+                    ])
+                    q_data = _parse_json(r.content)
+                    q_data["id"] = i + 1
+                    questions.append(q_data)
+                    
+                    # Send question immediately
+                    yield f"data: {json.dumps({'type': 'question', 'data': q_data, 'index': i})}\n\n"
+                    
+                except Exception as e:
+                    logger.error(f"Question {i+1} generation failed: {e}")
+                    yield f"data: {json.dumps({'type': 'error', 'data': f'Question {i+1} failed: {e}'})}\n\n"
+            
+            # Send complete signal with full quiz
+            payload = {
+                "quiz_id": quiz_id,
+                "topic": req.topic,
+                "difficulty": req.difficulty,
+                "questions": questions,
+                "created_at": datetime.utcnow().isoformat(),
+            }
+            
+            # Persist to MongoDB
+            try:
+                db = _mongo()
+                if db is not None:
+                    db.quizzes.insert_one({**payload, "user_id": req.user_id})
+            except Exception as e:
+                logger.warning(f"Quiz persist warn: {e}")
+            
+            yield f"data: {json.dumps({'type': 'complete', 'data': payload})}\n\n"
+            
+        except Exception as e:
+            logger.error(f"Quiz stream error: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'data': str(e)})}\n\n"
+    
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
 @app.post("/quiz/submit")
@@ -305,9 +460,118 @@ def quiz_submit(req: QuizSubmitRequest):
                 "topic": req.topic,
                 "submitted_at": datetime.utcnow(),
             })
+            
+            # ponytail: P1.1 save to quiz_history for adaptive learning
+            if req.user_id:
+                # Extract sub-topics from wrong answers for future targeting
+                wrong_topics = []
+                for d in details:
+                    if not d.get("correct"):
+                        # Try to extract key concept from the question
+                        q_text = str(d.get("question", ""))[:100]
+                        wrong_topics.append(q_text)
+                
+                db.quiz_history.insert_one({
+                    "user_id": req.user_id,
+                    "topic": req.topic,
+                    "difficulty": "medium",  # Default, could be passed in request
+                    "score": score,
+                    "questions_count": total,
+                    "wrong_topics": wrong_topics[:5],  # Keep top 5
+                    "timestamp": datetime.utcnow(),
+                })
     except Exception as e:
         print("quiz result persist warn:", e)
     return result
+
+
+# ponytail: P1.1 quiz history endpoint
+class QuizHistoryRequest(BaseModel):
+    user_id: str
+    topic: Optional[str] = None
+
+
+@app.post("/quiz/history")
+def quiz_history(req: QuizHistoryRequest):
+    """Get user's quiz score progression for a topic."""
+    try:
+        db = _mongo()
+        if db is None:
+            return {"history": [], "error": "MongoDB not configured"}
+        
+        query = {"user_id": req.user_id}
+        if req.topic:
+            query["topic"] = {"$regex": req.topic, "$options": "i"}
+        
+        cursor = db.quiz_history.find(query, sort=[("timestamp", -1)], limit=20)
+        history = []
+        for doc in cursor:
+            history.append({
+                "topic": doc.get("topic"),
+                "score": doc.get("score"),
+                "difficulty": doc.get("difficulty"),
+                "questions_count": doc.get("questions_count"),
+                "timestamp": doc.get("timestamp").isoformat() if doc.get("timestamp") else None,
+            })
+        
+        return {"history": history, "total": len(history)}
+    except Exception as e:
+        return {"history": [], "error": str(e)}
+
+
+# ponytail: P1.5 mock interview session memory
+def _get_mock_interview_history(user_id: str | None, role: str, limit: int = 3) -> list:
+    """Get recent mock interview sessions for a user on a role."""
+    if not user_id:
+        return []
+    try:
+        db = _mongo()
+        if db is None:
+            return []
+        cursor = db.mock_interview_sessions.find(
+            {"user_id": user_id, "role": {"$regex": role, "$options": "i"}},
+            sort=[("timestamp", -1)],
+            limit=limit
+        )
+        return list(cursor)
+    except Exception as e:
+        logger.warning(f"Mock interview history fetch failed: {e}")
+        return []
+
+
+def _build_interview_memory_context(past_sessions: list) -> str:
+    """Build prompt context from past mock interview sessions."""
+    if not past_sessions:
+        return ""
+    
+    # Aggregate weaknesses and strengths across sessions
+    all_weaknesses = []
+    all_strengths = []
+    scores = []
+    
+    for session in past_sessions:
+        all_weaknesses.extend(session.get("key_weaknesses", []))
+        all_strengths.extend(session.get("key_strengths", []))
+        if session.get("overall_score"):
+            scores.append(session["overall_score"])
+    
+    # Find recurring weaknesses (appeared in 2+ sessions)
+    from collections import Counter
+    weakness_counts = Counter(all_weaknesses)
+    recurring_weaknesses = [w for w, c in weakness_counts.items() if c >= 2][:5]
+    
+    context = f"""
+This candidate has done {len(past_sessions)} previous mock interviews for this role.
+Their average score: {sum(scores)/len(scores):.1f}/10 if scores else 'N/A'.
+Recurring weaknesses (appeared in 2+ sessions): {recurring_weaknesses if recurring_weaknesses else 'none identified'}.
+Their demonstrated strengths: {list(set(all_strengths))[:5] if all_strengths else 'none yet'}.
+
+For this session:
+- Start with a question that probes one of their persistent weaknesses: {recurring_weaknesses[:2] if recurring_weaknesses else 'general technical concepts'}
+- If they've improved on a previously weak area, acknowledge it in feedback
+- Progressively test areas they haven't been asked about before
+"""
+    return context
 
 
 @app.post("/mock-interview/question")
@@ -318,6 +582,13 @@ def mock_question(req: MockQuestionRequest):
     prev = req.previous_qa_pairs or []
     if not prev and req.previous_questions:
         prev = [{"question": q, "answer": "", "score": None} for q in req.previous_questions]
+    
+    # P1.5: Get past session history for this user+role
+    past_sessions = _get_mock_interview_history(
+        getattr(req, 'user_id', None),  # user_id may not be in the request model
+        role
+    )
+    memory_context = _build_interview_memory_context(past_sessions)
 
     system = """You are a rigorous interviewer. Generate ONE interview question.
 Return JSON: {question: string, type: "behavioral"|"technical"|"system_design", tip: string, probes_weakness: boolean}.
@@ -327,6 +598,9 @@ Rules:
 - Do not repeat previous questions.
 - Match interview_type.
 Valid JSON only."""
+    
+    if memory_context:
+        system += f"\n\nCANDIDATE HISTORY:\n{memory_context}"
     try:
         r = deepseek_json.invoke([
             {"role": "system", "content": system},
@@ -415,9 +689,68 @@ Valid JSON only."""
                 "qa_pairs": req.qa_pairs,
             }, default=str)},
         ])
-        return _parse_json(r.content)
+        result = _parse_json(r.content)
+        
+        # ponytail: P1.5 save session to mock_interview_sessions for memory
+        if req.user_id:
+            try:
+                db = _mongo()
+                if db is not None:
+                    db.mock_interview_sessions.insert_one({
+                        "user_id": req.user_id,
+                        "role": req.role,
+                        "interview_type": req.interview_type,
+                        "questions": [{"question": qa.get("question"), "answer": qa.get("answer"), "score": qa.get("score")} for qa in req.qa_pairs],
+                        "overall_score": result.get("overall_score"),
+                        "key_weaknesses": result.get("weaknesses_to_work_on", []),
+                        "key_strengths": result.get("strengths_demonstrated", []),
+                        "timestamp": datetime.utcnow(),
+                    })
+            except Exception as e:
+                logger.warning(f"Mock interview session save failed: {e}")
+        
+        return result
     except Exception as e:
         raise HTTPException(500, f"Report generation failed: {e}")
+
+
+# ponytail: P1.5 mock interview progress endpoint
+class MockProgressRequest(BaseModel):
+    user_id: str
+    role: Optional[str] = None
+
+
+@app.post("/mock-interview/progress")
+def mock_progress(req: MockProgressRequest):
+    """Get user's mock interview score trend across sessions."""
+    try:
+        db = _mongo()
+        if db is None:
+            return {"sessions": [], "error": "MongoDB not configured"}
+        
+        query = {"user_id": req.user_id}
+        if req.role:
+            query["role"] = {"$regex": req.role, "$options": "i"}
+        
+        cursor = db.mock_interview_sessions.find(query, sort=[("timestamp", -1)], limit=20)
+        sessions = []
+        for doc in cursor:
+            sessions.append({
+                "role": doc.get("role"),
+                "interview_type": doc.get("interview_type"),
+                "overall_score": doc.get("overall_score"),
+                "key_weaknesses": doc.get("key_weaknesses", [])[:3],
+                "key_strengths": doc.get("key_strengths", [])[:3],
+                "timestamp": doc.get("timestamp").isoformat() if doc.get("timestamp") else None,
+            })
+        
+        # Calculate trend
+        scores = [s["overall_score"] for s in sessions if s.get("overall_score")]
+        trend = "improving" if len(scores) >= 2 and scores[0] > scores[-1] else "stable" if len(scores) >= 2 else "not enough data"
+        
+        return {"sessions": sessions, "total": len(sessions), "trend": trend}
+    except Exception as e:
+        return {"sessions": [], "error": str(e)}
 
 
 def _fetch_transcript(video_id: str) -> str:

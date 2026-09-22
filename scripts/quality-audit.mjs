@@ -144,6 +144,9 @@ function normalize(s) {
 
 /** Fuzzy: excerpt found if most significant tokens appear in resume (order-flexible). */
 function excerptInResume(excerpt, resume) {
+  const raw = String(excerpt || "").trim();
+  // P0.1: explicit "no evidence" is valid output, not a hallucination
+  if (/^no evidence found/i.test(raw)) return true;
   const ex = normalize(excerpt);
   const rs = normalize(resume);
   if (!ex || ex.length < 8) return false;

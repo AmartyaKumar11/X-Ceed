@@ -14,9 +14,13 @@ from urllib.parse import quote_plus
 
 import httpx
 from dotenv import load_dotenv
+import logging
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from langchain_openai import ChatOpenAI
+
+logger = logging.getLogger("xceed")
 from langgraph.graph import END, StateGraph
 from pydantic import BaseModel, Field
 from pymongo import MongoClient
@@ -33,9 +37,12 @@ DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 TYPESAFE_API_KEY = os.getenv("TYPESAFE_API_KEY", "")
 MONGODB_URI = os.getenv("MONGODB_URI", "")
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY", "")
+# ponytail: P0.6 YouTube key rotation — support comma-separated keys
+YOUTUBE_API_KEYS = [k.strip() for k in os.getenv("YOUTUBE_API_KEYS", YOUTUBE_API_KEY or "").split(",") if k.strip()]
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3002")
 TYPESAFE_URL = os.getenv("TYPESAFE_BASE_URL", "https://api.typesafe.ai/v1/systemone")
-CACHE_TTL = timedelta(hours=24)
+# ponytail: P0.6 extend cache TTL from 24h to 7 days (videos don't change daily)
+CACHE_TTL = timedelta(days=7)
 
 # ---------------------------------------------------------------------------
 # Clients
@@ -54,6 +61,139 @@ deepseek_json = ChatOpenAI(
     temperature=0.1,
     model_kwargs={"response_format": {"type": "json_object"}},
 )
+
+# ponytail: P0.5 model fallback chain — retry with fallback models on failure
+class ResilientLLM:
+    """Wrapper that tries multiple models in sequence on failure."""
+    
+    def __init__(self):
+        self.models = [
+            {"name": "deepseek-chat", "base_url": "https://api.deepseek.com", "key_env": "DEEPSEEK_API_KEY"},
+            # Fallback: DeepSeek reasoner model (same API, different model)
+            {"name": "deepseek-reasoner", "base_url": "https://api.deepseek.com", "key_env": "DEEPSEEK_API_KEY"},
+        ]
+        self.active_model = self.models[0]["name"]
+        self.fallback_count = 0
+    
+    def invoke(self, messages, json_mode=False, temperature=0.1):
+        """Synchronous invoke with fallback."""
+        last_error = None
+        for model_config in self.models:
+            try:
+                kwargs = {"temperature": temperature}
+                if json_mode:
+                    kwargs["model_kwargs"] = {"response_format": {"type": "json_object"}}
+                llm = ChatOpenAI(
+                    model=model_config["name"],
+                    base_url=model_config["base_url"],
+                    api_key=os.getenv(model_config["key_env"]) or "missing",
+                    **kwargs,
+                )
+                result = llm.invoke(messages)
+                self.active_model = model_config["name"]
+                return result
+            except Exception as e:
+                logger.warning(f"Model {model_config['name']} failed: {e}")
+                last_error = e
+                self.fallback_count += 1
+                continue
+        raise RuntimeError(f"All models failed. Last error: {last_error}")
+    
+    async def ainvoke(self, messages, json_mode=False, temperature=0.1):
+        """Async invoke with fallback."""
+        last_error = None
+        for model_config in self.models:
+            try:
+                kwargs = {"temperature": temperature}
+                if json_mode:
+                    kwargs["model_kwargs"] = {"response_format": {"type": "json_object"}}
+                llm = ChatOpenAI(
+                    model=model_config["name"],
+                    base_url=model_config["base_url"],
+                    api_key=os.getenv(model_config["key_env"]) or "missing",
+                    **kwargs,
+                )
+                result = await llm.ainvoke(messages)
+                self.active_model = model_config["name"]
+                return result
+            except Exception as e:
+                logger.warning(f"Model {model_config['name']} failed: {e}")
+                last_error = e
+                self.fallback_count += 1
+                continue
+        raise RuntimeError(f"All models failed. Last error: {last_error}")
+    
+    async def astream(self, messages, json_mode=False, temperature=0.1):
+        """Async streaming invoke with fallback."""
+        last_error = None
+        for model_config in self.models:
+            try:
+                kwargs = {"temperature": temperature}
+                if json_mode:
+                    kwargs["model_kwargs"] = {"response_format": {"type": "json_object"}}
+                llm = ChatOpenAI(
+                    model=model_config["name"],
+                    base_url=model_config["base_url"],
+                    api_key=os.getenv(model_config["key_env"]) or "missing",
+                    **kwargs,
+                )
+                self.active_model = model_config["name"]
+                async for chunk in llm.astream(messages):
+                    yield chunk
+                return
+            except Exception as e:
+                logger.warning(f"Model {model_config['name']} streaming failed: {e}")
+                last_error = e
+                self.fallback_count += 1
+                continue
+        raise RuntimeError(f"All models failed streaming. Last error: {last_error}")
+    
+    def get_status(self):
+        return {"active_model": self.active_model, "fallback_activations": self.fallback_count}
+
+
+resilient_llm = ResilientLLM()
+
+# ponytail: P0.6 YouTube API key rotation
+class YouTubeKeyRotator:
+    """Round-robin YouTube API keys with exhaustion tracking."""
+    
+    def __init__(self, keys: list[str]):
+        self.keys = keys or []
+        self.current_index = 0
+        self.exhausted: set[int] = set()
+    
+    def get_key(self) -> str | None:
+        """Get next available API key."""
+        if not self.keys:
+            return None
+        available = [(i, k) for i, k in enumerate(self.keys) if i not in self.exhausted]
+        if not available:
+            return None
+        # Round-robin among available keys
+        idx, key = available[self.current_index % len(available)]
+        self.current_index = (self.current_index + 1) % len(available)
+        return key
+    
+    def mark_exhausted(self, key: str):
+        """Mark a key as quota-exhausted."""
+        try:
+            idx = self.keys.index(key)
+            self.exhausted.add(idx)
+            logger.warning(f"YouTube API key {idx+1}/{len(self.keys)} exhausted")
+        except ValueError:
+            pass
+    
+    def reset(self):
+        """Reset all keys (call daily)."""
+        self.exhausted.clear()
+        self.current_index = 0
+    
+    def has_keys(self) -> bool:
+        return bool(self.keys) and len(self.exhausted) < len(self.keys)
+
+
+yt_key_rotator = YouTubeKeyRotator(YOUTUBE_API_KEYS)
 
 jev_client = TypeSafeClient(api_key=TYPESAFE_API_KEY) if TYPESAFE_API_KEY else None
 
@@ -178,12 +318,13 @@ def _parse_json_content(content: str) -> dict:
     return json.loads(content)
 
 
+# ponytail: P0.2 recalibrated levels — a 3-year React dev should score level 3, not 1-2
 SKILL_CRITERIA = [
-    "Not mentioned anywhere in the resume",
-    "Mentioned but no evidence of depth",
-    "Some relevant experience shown",
-    "Strong demonstrated experience",
-    "Led or architected work in this area",
+    "Not mentioned anywhere in the resume — skill name absent",
+    "Mentioned as a keyword only — no context, no project, no duration stated",
+    "Used in at least one project or role with 1-2 years experience demonstrated",
+    "Regular professional use across multiple projects, 2-4 years, demonstrated impact",
+    "Deep expertise — 4+ years, led or architected systems, mentored others, or open-source contributions",
 ]
 
 GAP_CRITERIA = {
@@ -194,6 +335,72 @@ GAP_CRITERIA = {
 }
 
 PRIORITY_CRITERIA = ["ignore", "low", "medium", "high", "critical"]
+
+# ponytail: P0.4 technology-specific Jev questions — require explicit naming of services/tech
+# Prevents false positives like "Python scripting" counting as AWS experience
+TECH_SPECIFIC_QUESTIONS: dict[str, dict] = {
+    "aws": {
+        "fit": "Does the candidate explicitly mention any AWS services (S3, EC2, Lambda, CloudFront, RDS, ECS, EKS, IAM, CloudWatch, DynamoDB, API Gateway) by name? Score based ONLY on named AWS services, not general cloud or DevOps mentions. 'Cloud experience' without AWS names = level 0-1.",
+        "must": "Has the candidate used at least one AWS service (S3, EC2, Lambda, RDS, CloudFront, etc.) in a professional or project context? Yes requires explicit AWS service mention with evidence.",
+    },
+    "docker": {
+        "fit": "Does the candidate explicitly mention Docker, containers, Dockerfile, docker-compose, or containerization by name? Score based ONLY on explicit Docker/container mentions, not just 'deployment' or 'DevOps'.",
+        "must": "Has the candidate used Docker/containers in a professional or project context? Yes requires explicit Docker/container mention with evidence of containerization work.",
+    },
+    "kubernetes": {
+        "fit": "Does the candidate explicitly mention Kubernetes, K8s, kubectl, Helm, EKS, GKE, or AKS by name? Score based ONLY on explicit Kubernetes mentions, not just 'orchestration' or 'cloud'.",
+        "must": "Has the candidate used Kubernetes in a professional or project context? Yes requires explicit K8s/Kubernetes mention with evidence.",
+    },
+    "graphql": {
+        "fit": "Does the candidate explicitly mention GraphQL, Apollo, or GraphQL-specific concepts (schemas, resolvers, mutations, subscriptions) by name? Score based ONLY on explicit GraphQL mentions, not just 'API'.",
+        "must": "Has the candidate built or worked with GraphQL APIs? Yes requires explicit GraphQL mention with evidence.",
+    },
+    "typescript": {
+        "fit": "Does the candidate explicitly mention TypeScript, TS, type annotations, or TypeScript-specific features by name? Score based ONLY on explicit TypeScript mentions, not just JavaScript.",
+        "must": "Has the candidate used TypeScript professionally or in projects? Yes requires explicit TypeScript mention, not just JavaScript experience.",
+    },
+    "react": {
+        "fit": "Does the candidate explicitly mention React, React.js, JSX, hooks (useState, useEffect, etc.), React components, or React-specific patterns? Score based on explicit React evidence.",
+        "must": "Has the candidate built production applications or projects with React? Yes requires explicit React mention with evidence of components/hooks/JSX work.",
+    },
+    "node": {
+        "fit": "Does the candidate explicitly mention Node.js, Node, Express, Fastify, NestJS, or server-side JavaScript by name? Score based ONLY on explicit Node.js ecosystem mentions.",
+        "must": "Has the candidate built backend services with Node.js? Yes requires explicit Node.js/Express mention with evidence.",
+    },
+    "python": {
+        "fit": "Does the candidate explicitly mention Python, Django, Flask, FastAPI, or Python-specific frameworks/tools? Score based on explicit Python evidence and depth of usage.",
+        "must": "Has the candidate used Python professionally or in substantial projects? Yes requires explicit Python mention with evidence.",
+    },
+    "mongodb": {
+        "fit": "Does the candidate explicitly mention MongoDB, Mongoose, NoSQL document databases, or MongoDB-specific concepts? Score based ONLY on explicit MongoDB mentions, not just 'database'.",
+        "must": "Has the candidate used MongoDB in a professional or project context? Yes requires explicit MongoDB mention with evidence.",
+    },
+    "sql": {
+        "fit": "Does the candidate explicitly mention SQL, PostgreSQL, MySQL, database queries, schema design, or relational databases? Score based on explicit SQL/relational DB evidence.",
+        "must": "Has the candidate used SQL databases professionally? Yes requires explicit SQL/PostgreSQL/MySQL mention with evidence.",
+    },
+    "git": {
+        "fit": "Does the candidate mention Git, GitHub, GitLab, version control, branching, PRs, or CI/CD pipelines? Score based on explicit Git/version control evidence.",
+        "must": "Has the candidate used Git for version control? Yes requires explicit Git mention or evidence of collaborative development.",
+    },
+}
+
+
+def _get_tech_specific_question(req_desc: str, question_type: str = "fit") -> str | None:
+    """Return tech-specific Jev question if requirement matches a known technology."""
+    req_lower = req_desc.lower()
+    for tech, questions in TECH_SPECIFIC_QUESTIONS.items():
+        # Match technology keywords in requirement description
+        if tech in req_lower or (tech == "node" and "node.js" in req_lower):
+            return questions.get(question_type)
+        # Handle common variations
+        if tech == "aws" and any(kw in req_lower for kw in ("amazon", "cloud", "s3", "ec2", "lambda")):
+            return questions.get(question_type)
+        if tech == "kubernetes" and any(kw in req_lower for kw in ("k8s", "helm", "eks", "gke")):
+            return questions.get(question_type)
+        if tech == "docker" and "container" in req_lower:
+            return questions.get(question_type)
+    return None
 
 
 def _require_jev():
@@ -243,6 +450,7 @@ class GapState(TypedDict, total=False):
 
 class CareerState(TypedDict, total=False):
     gaps: list
+    gap_clusters: list  # P1.2: clustered gaps for combined learning
     target_role: str
     objectives: list
     study_plan: dict
@@ -279,15 +487,24 @@ Compare the candidate profile against job requirements.
 Return JSON: {comparison: string, aligned: string[], misaligned: string[], notes: string}.
 Valid JSON only."""
 
+# ponytail: P0.1 evidence density — one item per requirement, even when no evidence exists
 EVIDENCE_SYSTEM = """You are X-CEED's evidence extractor.
-Given candidate profile and job requirements, return JSON:
-{evidence: [{requirement: string, resume_excerpt: string, strength: "weak"|"moderate"|"strong"}]}.
+For EACH requirement listed below, extract the strongest supporting evidence from the resume.
+If NO evidence exists for a requirement, return {{"resume_excerpt": "No evidence found in resume", "strength": "none"}}.
+
+Return a JSON object with exactly this structure:
+{{"evidence": [array of EXACTLY {n_requirements} items, one per requirement, in the same order as listed]}}
+
+Each item must have:
+- requirement: string (copy the requirement text exactly)
+- resume_excerpt: string (quote the resume verbatim, or "No evidence found in resume")
+- strength: "none" | "weak" | "moderate" | "strong"
 
 Rules:
-- resume_excerpt MUST be a verbatim or near-verbatim quote from the resume/profile evidence fields — never invent quotes.
-- If the candidate has NO evidence for a requirement, OMIT that requirement from the evidence array entirely (do not write "No mention of X").
-- strength reflects how strongly the quote supports the requirement.
-Valid JSON only."""
+- resume_excerpt MUST be a verbatim or near-verbatim quote from the resume — never invent quotes.
+- If no evidence exists, say "No evidence found in resume" with strength "none".
+- Return EXACTLY {n_requirements} items — one per requirement, same order.
+Valid JSON only. No markdown fences."""
 
 EXPLANATION_SYSTEM = """You are X-CEED's match explainer.
 Write a clear, honest recruiter-facing explanation of fit.
@@ -501,10 +718,13 @@ def _yt_fallback_videos(skill: str, level: str) -> list:
     return out
 
 
+# ponytail: P0.6 use key rotator with automatic fallback on 429
 def _yt_search(query: str, max_results: int = 10) -> list:
-    """YouTube search.list — costs 100 quota units regardless of maxResults. Default 10."""
-    if not YOUTUBE_API_KEY:
-        raise RuntimeError("YOUTUBE_API_KEY not configured")
+    """YouTube search.list with key rotation — costs 100 quota units per key."""
+    api_key = yt_key_rotator.get_key()
+    if not api_key:
+        raise YouTubeQuotaExhausted("All YouTube API keys exhausted")
+    
     r = httpx.get(
         "https://www.googleapis.com/youtube/v3/search",
         params={
@@ -512,12 +732,34 @@ def _yt_search(query: str, max_results: int = 10) -> list:
             "q": query,
             "type": "video",
             "maxResults": min(max(1, max_results), 10),
-            "key": YOUTUBE_API_KEY,
+            "key": api_key,
         },
         timeout=25.0,
     )
+    
     if r.status_code == 429:
-        raise YouTubeQuotaExhausted(r.text[:300])
+        # Mark this key as exhausted and retry with next key
+        yt_key_rotator.mark_exhausted(api_key)
+        next_key = yt_key_rotator.get_key()
+        if next_key:
+            logger.info(f"Retrying YouTube search with next API key")
+            r = httpx.get(
+                "https://www.googleapis.com/youtube/v3/search",
+                params={
+                    "part": "snippet",
+                    "q": query,
+                    "type": "video",
+                    "maxResults": min(max(1, max_results), 10),
+                    "key": next_key,
+                },
+                timeout=25.0,
+            )
+            if r.status_code == 429:
+                yt_key_rotator.mark_exhausted(next_key)
+                raise YouTubeQuotaExhausted(r.text[:300])
+        else:
+            raise YouTubeQuotaExhausted(r.text[:300])
+    
     r.raise_for_status()
     out = []
     for it in r.json().get("items", []):
@@ -716,15 +958,34 @@ def score_requirements(state: MatchState) -> dict:
                 "name": r.get("name") or r.get("skill") or f"req_{i}",
                 "description": r.get("description") or r.get("name") or str(r),
             })
+    # ponytail: P0.4 use technology-specific questions when available
     questions = {}
     for i, req in enumerate(normalized):
-        questions[f"req_{i}_fit"] = Score(
-            instructions=f"How well does the candidate demonstrate: {req['description']}?",
-            criteria=SKILL_CRITERIA,
-        )
-        questions[f"req_{i}_must_have"] = Noul(
-            instructions=f"Does the candidate meet the minimum bar for: {req['description']}?",
-        )
+        req_desc = req['description']
+        
+        # Check for technology-specific question
+        tech_fit_q = _get_tech_specific_question(req_desc, "fit")
+        tech_must_q = _get_tech_specific_question(req_desc, "must")
+        
+        if tech_fit_q:
+            questions[f"req_{i}_fit"] = Score(
+                instructions=tech_fit_q,
+                criteria=SKILL_CRITERIA,
+            )
+        else:
+            questions[f"req_{i}_fit"] = Score(
+                instructions=f"How well does the candidate demonstrate: {req_desc}? Score based on explicit evidence in the resume.",
+                criteria=SKILL_CRITERIA,
+            )
+        
+        if tech_must_q:
+            questions[f"req_{i}_must_have"] = Noul(
+                instructions=tech_must_q,
+            )
+        else:
+            questions[f"req_{i}_must_have"] = Noul(
+                instructions=f"Does the candidate meet the minimum bar for: {req_desc}? Yes requires explicit mention with evidence.",
+            )
     scores = {}
     if questions:
         try:
@@ -752,6 +1013,57 @@ def score_requirements(state: MatchState) -> dict:
         except Exception as e:
             return {"requirement_scores": {}, "errors": (state.get("errors") or []) + [f"Jev score: {e}"]}
     return {"requirement_scores": scores, "job_requirements": {**(job if isinstance(job, dict) else {}), "_normalized": normalized}}
+
+
+# ponytail: P1.6 confidence intervals from Jev probability distributions
+def compute_confidence_intervals(req_scores: dict) -> dict:
+    """Compute confidence intervals from Jev probability distributions."""
+    intervals = {}
+    for req_name, scores in req_scores.items():
+        if not isinstance(scores, dict):
+            continue
+        
+        probs = scores.get("fit_probabilities") or {}
+        fit_score = scores.get("fit_score", 0.5)
+        confidence = scores.get("confidence", 0.6)
+        
+        if probs:
+            # Compute expected value and variance from probability distribution
+            try:
+                ev = sum(int(k) * float(v) for k, v in probs.items() if k.isdigit())
+                var = sum(float(v) * (int(k) - ev) ** 2 for k, v in probs.items() if k.isdigit())
+                std = var ** 0.5 if var > 0 else 0
+                # 90% confidence interval (±1.645 std), normalized to 0-100 scale
+                margin = 1.645 * std / 4 * 100  # /4 because scores are 0-4
+            except Exception:
+                margin = 15.0  # Default margin when calculation fails
+        else:
+            # No probability distribution — estimate margin from confidence
+            margin = 20.0 * (1.0 - confidence) + 5.0  # Higher uncertainty when confidence is low
+        
+        score_pct = fit_score * 100 if fit_score <= 1 else fit_score
+        intervals[req_name] = {
+            "score": round(score_pct, 1),
+            "margin": round(margin, 1),
+            "low": max(0, round(score_pct - margin, 1)),
+            "high": min(100, round(score_pct + margin, 1)),
+            "confidence": confidence,
+            "uncertain_reason": _uncertainty_reason(scores, margin) if margin > 15 else None,
+        }
+    
+    return intervals
+
+
+def _uncertainty_reason(scores: dict, margin: float) -> str | None:
+    """Generate explanation for high uncertainty."""
+    if margin <= 15:
+        return None
+    fit_level = scores.get("fit_level", 0)
+    if fit_level in (0, 1):
+        return "Skill mentioned briefly or as keyword only — adding project details would narrow this range"
+    if fit_level == 2:
+        return "Some experience shown but duration/depth unclear — specifying years of experience would help"
+    return "Evidence exists but specificity is low — adding concrete examples would narrow uncertainty"
 
 
 def compute_weighted_score(state: MatchState) -> dict:
@@ -899,40 +1211,121 @@ def compute_weighted_score(state: MatchState) -> dict:
         overall = max(overall, min(0.42, 0.18 + skills_score + 0.05 * tech_hits))
     confs = [v.get("confidence") for v in req_scores.values() if isinstance(v, dict) and v.get("confidence") is not None]
     confidence = sum(confs) / len(confs) if confs else 0.6
+    
+    # ponytail: P1.6 compute confidence intervals for each requirement
+    confidence_intervals = compute_confidence_intervals(req_scores)
+    
     return {
         "component_scores": component,
         "overall_score": round(overall * 100, 1),
         "confidence": confidence,
+        "confidence_intervals": confidence_intervals,
     }
 
 
+# ponytail: P0.1 evidence density — enumerate requirements, validate count, retry once
 def extract_evidence(state: MatchState) -> dict:
-    try:
+    job = state.get("job_requirements") or {}
+    normalized = job.get("_normalized") or []
+    if not normalized:
+        # Build normalized requirements list from job data
+        reqs = job.get("requirements") if isinstance(job, dict) else None
+        if not reqs:
+            reqs = job.get("skills") or job.get("required_skills") or []
+        for i, r in enumerate(reqs[:15]):
+            if isinstance(r, str):
+                normalized.append({"name": r, "description": r})
+            elif isinstance(r, dict):
+                normalized.append({
+                    "name": r.get("name") or r.get("skill") or f"req_{i}",
+                    "description": r.get("description") or r.get("name") or str(r),
+                })
+    
+    n_requirements = len(normalized)
+    if n_requirements == 0:
+        return {"evidence": [], "errors": ["No requirements to extract evidence for"]}
+    
+    # Build numbered requirements list for the prompt
+    numbered_requirements = "\n".join(
+        f"{i+1}. {req.get('description') or req.get('name')}" 
+        for i, req in enumerate(normalized)
+    )
+    
+    # Get resume text
+    profile = state.get("candidate_profile") or {}
+    resume_text = profile.get("raw_text") or ""
+    if not resume_text:
+        # Reconstruct from profile sections
+        parts = []
+        for sk in (profile.get("skills") or []):
+            if isinstance(sk, dict):
+                parts.append(f"{sk.get('name', '')} ({sk.get('level', '')}): {sk.get('evidence', '')}")
+        for exp in (profile.get("experience") or []):
+            if isinstance(exp, dict):
+                parts.append(f"{exp.get('title', '')} at {exp.get('company', '')} - {exp.get('description', '')}")
+        for proj in (profile.get("projects") or []):
+            if isinstance(proj, dict):
+                parts.append(f"{proj.get('name', '')}: {proj.get('description', '')}")
+        resume_text = "\n".join(parts) if parts else json.dumps(profile, default=str)[:8000]
+    
+    system_prompt = EVIDENCE_SYSTEM.format(n_requirements=n_requirements)
+    user_prompt = f"""Requirements to evaluate:
+{numbered_requirements}
+
+Resume text:
+{resume_text[:10000]}"""
+    
+    def attempt_extraction(retry_msg=""):
         response = deepseek_json.invoke([
-            {"role": "system", "content": EVIDENCE_SYSTEM},
-            {"role": "user", "content": json.dumps({
-                "profile": state.get("candidate_profile"),
-                "job": state.get("job_requirements"),
-                "scores": state.get("requirement_scores"),
-            }, default=str)[:12000]},
+            {"role": "system", "content": system_prompt + retry_msg},
+            {"role": "user", "content": user_prompt},
         ])
         data = _parse_json_content(response.content)
-        raw = data.get("evidence") or []
-        cleaned = []
-        for item in raw:
+        return data.get("evidence") or []
+    
+    try:
+        raw = attempt_extraction()
+        
+        # Validate count — retry once if wrong
+        if len(raw) != n_requirements and n_requirements > 0:
+            retry_msg = f"\n\nIMPORTANT: You returned {len(raw)} items but I need EXACTLY {n_requirements}. Return one item per requirement."
+            raw = attempt_extraction(retry_msg)
+        
+        # Build final evidence list — keep all items including "none" strength
+        evidence = []
+        for i, item in enumerate(raw):
             if not isinstance(item, dict):
                 continue
+            req_name = item.get("requirement") or (normalized[i].get("name") if i < len(normalized) else f"req_{i}")
             excerpt = str(item.get("resume_excerpt") or item.get("excerpt") or "").strip()
-            if not excerpt:
-                continue
-            if re.search(
-                r"^\s*no (explicit )?(git )?evidence|no (explicit )?mention|not (found|mentioned|present)|n/?a\b|implies .+ usage",
-                excerpt,
-                re.I,
-            ):
-                continue
-            cleaned.append(item)
-        return {"evidence": cleaned}
+            strength = str(item.get("strength") or "none").lower()
+            
+            # Normalize strength to valid values
+            if strength not in ("none", "weak", "moderate", "strong"):
+                if "no" in strength or not excerpt or "no evidence" in excerpt.lower():
+                    strength = "none"
+                else:
+                    strength = "weak"
+            
+            evidence.append({
+                "requirement": req_name,
+                "resume_excerpt": excerpt or "No evidence found in resume",
+                "strength": strength,
+            })
+        
+        # If we still don't have enough items, pad with "none" entries
+        while len(evidence) < n_requirements:
+            idx = len(evidence)
+            if idx < len(normalized):
+                evidence.append({
+                    "requirement": normalized[idx].get("name") or f"req_{idx}",
+                    "resume_excerpt": "No evidence found in resume",
+                    "strength": "none",
+                })
+            else:
+                break
+        
+        return {"evidence": evidence}
     except Exception as e:
         return {"evidence": [], "errors": (state.get("errors") or []) + [str(e)]}
 
@@ -957,14 +1350,28 @@ def generate_explanation(state: MatchState) -> dict:
 # ---------------------------------------------------------------------------
 # Gap graph
 # ---------------------------------------------------------------------------
+# ponytail: P0.4 technology-specific gap classification to avoid false "weak" for missing skills
 def classify_gaps(state: GapState) -> dict:
     match = state.get("match_result") or {}
     req_scores = match.get("requirement_scores") or {}
     questions = {}
     names = list(req_scores.keys())[:15]
     for i, name in enumerate(names):
+        score_data = req_scores[name]
+        # Technology-specific classification — be explicit about what counts as evidence
+        tech_q = _get_tech_specific_question(name, "must")
+        if tech_q:
+            instructions = (
+                f"For requirement '{name}': {tech_q} "
+                f"Score data: {score_data}. "
+                f"If no explicit mention exists, classify as 'missing'. "
+                f"If mentioned but shallow, classify as 'weak'. "
+                f"If mentioned without proof of depth, classify as 'under-evidenced'."
+            )
+        else:
+            instructions = f"For requirement '{name}' with score data {score_data}, classify the gap."
         questions[f"gap_{i}"] = Choice(
-            instructions=f"For requirement '{name}' with score data {req_scores[name]}, classify the gap.",
+            instructions=instructions,
             criteria=GAP_CRITERIA,
         )
     gaps = []
@@ -1029,6 +1436,63 @@ def prioritize_gaps(state: GapState) -> dict:
 # ---------------------------------------------------------------------------
 # Career graph
 # ---------------------------------------------------------------------------
+
+# ponytail: P1.2 cross-gap learning synthesis — cluster related gaps
+RELATED_TECH_GROUPS = [
+    {"group": "frontend-react", "techs": {"react", "next.js", "nextjs", "jsx", "hooks", "redux", "context"}},
+    {"group": "frontend-vue", "techs": {"vue", "vuex", "nuxt", "vue.js"}},
+    {"group": "typescript-js", "techs": {"typescript", "javascript", "es6", "node.js", "nodejs"}},
+    {"group": "backend-python", "techs": {"python", "django", "flask", "fastapi", "celery"}},
+    {"group": "backend-node", "techs": {"node.js", "nodejs", "express", "nestjs", "fastify"}},
+    {"group": "cloud-aws", "techs": {"aws", "s3", "ec2", "lambda", "cloudfront", "rds", "dynamodb"}},
+    {"group": "containers", "techs": {"docker", "kubernetes", "k8s", "helm", "containers"}},
+    {"group": "databases-sql", "techs": {"sql", "postgresql", "mysql", "database", "postgres"}},
+    {"group": "databases-nosql", "techs": {"mongodb", "mongo", "nosql", "redis", "dynamodb"}},
+    {"group": "api-graphql", "techs": {"graphql", "apollo", "relay"}},
+    {"group": "devops", "techs": {"ci/cd", "github actions", "jenkins", "terraform", "ansible"}},
+]
+
+
+def _cluster_gaps(gaps: list) -> list[list]:
+    """Group related gaps that can be learned together."""
+    if len(gaps) <= 2:
+        return [[g] for g in gaps]  # No clustering needed for small sets
+    
+    # Map each gap to its tech group
+    gap_groups = {}
+    for i, gap in enumerate(gaps):
+        req = str(gap.get("requirement", "")).lower()
+        assigned = False
+        for group_def in RELATED_TECH_GROUPS:
+            if any(tech in req for tech in group_def["techs"]):
+                group_name = group_def["group"]
+                if group_name not in gap_groups:
+                    gap_groups[group_name] = []
+                gap_groups[group_name].append(gap)
+                assigned = True
+                break
+        if not assigned:
+            # Standalone gap
+            gap_groups[f"standalone_{i}"] = [gap]
+    
+    # Merge small groups and return clusters
+    clusters = []
+    for group_name, group_gaps in gap_groups.items():
+        if len(group_gaps) >= 2 or "standalone" not in group_name:
+            clusters.append(group_gaps)
+        else:
+            clusters.append(group_gaps)
+    
+    return clusters
+
+
+def cluster_gaps(state: CareerState) -> dict:
+    """LangGraph node: Group related gaps for combined learning paths."""
+    gaps = state.get("gaps") or []
+    clusters = _cluster_gaps(gaps)
+    return {"gap_clusters": clusters}
+
+
 def generate_objectives(state: CareerState) -> dict:
     try:
         response = deepseek_json.invoke([
@@ -1057,16 +1521,63 @@ def create_study_plan(state: CareerState) -> dict:
         return {"study_plan": {"phases": []}, "errors": (state.get("errors") or []) + [str(e)]}
 
 
+# ponytail: P1.2 cluster-aware project generation
+CLUSTER_PROJECTS_SYSTEM = """You are X-CEED's project recommender.
+Given a CLUSTER of related skill gaps, suggest ONE project that addresses ALL gaps in the cluster simultaneously.
+Return JSON: {project: {name: string, description: string, technologies: string[], addresses_gaps: string[], why_combined: string}}.
+
+Rules:
+- The project MUST address every gap in the cluster
+- Explain why learning these skills together is beneficial
+- Make the project practical and portfolio-worthy
+Valid JSON only."""
+
+
 def suggest_projects(state: CareerState) -> dict:
-    try:
-        response = deepseek_json.invoke([
-            {"role": "system", "content": PROJECTS_SYSTEM},
-            {"role": "user", "content": json.dumps({"gaps": state.get("gaps"), "target_role": state.get("target_role")}, default=str)},
-        ])
-        data = _parse_json_content(response.content)
-        return {"projects": data.get("projects") or []}
-    except Exception as e:
-        return {"projects": [], "errors": (state.get("errors") or []) + [str(e)]}
+    # ponytail: P1.2 generate projects per gap cluster
+    clusters = state.get("gap_clusters") or _cluster_gaps(state.get("gaps") or [])
+    all_projects = []
+    errors = list(state.get("errors") or [])
+    
+    for cluster in clusters:
+        if len(cluster) >= 2:
+            # Multi-gap cluster — generate one combined project
+            cluster_gaps = [g.get("requirement", str(g)) for g in cluster]
+            try:
+                response = deepseek_json.invoke([
+                    {"role": "system", "content": CLUSTER_PROJECTS_SYSTEM},
+                    {"role": "user", "content": json.dumps({
+                        "cluster_gaps": cluster_gaps,
+                        "target_role": state.get("target_role"),
+                    }, default=str)},
+                ])
+                data = _parse_json_content(response.content)
+                project = data.get("project") or {}
+                if project:
+                    project["cluster"] = cluster_gaps  # Mark as cluster project
+                    all_projects.append(project)
+            except Exception as e:
+                errors.append(f"Cluster project generation failed: {e}")
+        else:
+            # Single gap — use original prompt
+            gap = cluster[0] if cluster else {}
+            gap_name = gap.get("requirement", str(gap))
+            try:
+                response = deepseek_json.invoke([
+                    {"role": "system", "content": PROJECTS_SYSTEM},
+                    {"role": "user", "content": json.dumps({
+                        "gaps": [gap],
+                        "target_role": state.get("target_role"),
+                    }, default=str)},
+                ])
+                data = _parse_json_content(response.content)
+                for proj in (data.get("projects") or []):
+                    proj["cluster"] = [gap_name]  # Single-gap project
+                    all_projects.append(proj)
+            except Exception as e:
+                errors.append(f"Project generation for {gap_name} failed: {e}")
+    
+    return {"projects": all_projects, "errors": errors}
 
 
 def search_youtube_resources(state: CareerState) -> dict:
@@ -1334,15 +1845,18 @@ def _build_gap_graph():
     return g.compile()
 
 
+# ponytail: P1.2 add cluster_gaps node to career graph
 def _build_career_graph():
     g = StateGraph(CareerState)
+    g.add_node("cluster_gaps", cluster_gaps)  # P1.2: group related gaps
     g.add_node("generate_objectives", generate_objectives)
     g.add_node("create_study_plan", create_study_plan)
     g.add_node("suggest_projects", suggest_projects)
     g.add_node("search_resources", search_youtube_resources)
     g.add_node("filter_resources", filter_resources)
     g.add_node("curate_resources", curate_final_resources)
-    g.set_entry_point("generate_objectives")
+    g.set_entry_point("cluster_gaps")  # Start with clustering
+    g.add_edge("cluster_gaps", "generate_objectives")
     g.add_edge("generate_objectives", "create_study_plan")
     g.add_edge("create_study_plan", "suggest_projects")
     g.add_edge("suggest_projects", "search_resources")
@@ -1356,6 +1870,164 @@ resume_app = _build_resume_graph()
 match_app = _build_match_graph()
 gap_app = _build_gap_graph()
 career_app = _build_career_graph()
+
+
+# ---------------------------------------------------------------------------
+# P1.3 Resume Version Diffing — helpers
+# ---------------------------------------------------------------------------
+def _resume_versions_collection():
+    """MongoDB collection for lightweight resume version history."""
+    db = get_db()
+    return db["resume_versions"] if db is not None else None
+
+
+def _get_previous_profile(user_id: str) -> dict | None:
+    """Fetch most recent profile for a user."""
+    col = _resume_versions_collection()
+    if col is None:
+        return None
+    try:
+        doc = col.find_one(
+            {"user_id": user_id},
+            sort=[("created_at", -1)]
+        )
+        return doc.get("profile") if doc else None
+    except Exception as e:
+        logger.warning(f"Failed to fetch previous profile: {e}")
+        return None
+
+
+def _save_resume_version(user_id: str, profile: dict, diff: dict | None = None):
+    """Store a new resume version snapshot."""
+    col = _resume_versions_collection()
+    if col is None:
+        return
+    try:
+        col.insert_one({
+            "user_id": user_id,
+            "profile": profile,
+            "diff_from_previous": diff,
+            "created_at": datetime.utcnow(),
+        })
+        # Keep only last 10 versions per user (lightweight)
+        cursor = col.find({"user_id": user_id}, sort=[("created_at", -1)]).skip(10)
+        old_ids = [doc["_id"] for doc in cursor]
+        if old_ids:
+            col.delete_many({"_id": {"$in": old_ids}})
+    except Exception as e:
+        logger.warning(f"Failed to save resume version: {e}")
+
+
+def _extract_skill_names(skills: list) -> set:
+    """Extract skill names from skills array."""
+    names = set()
+    for sk in (skills or []):
+        if isinstance(sk, dict):
+            names.add((sk.get("name") or "").lower().strip())
+        elif isinstance(sk, str):
+            names.add(sk.lower().strip())
+    return {n for n in names if n}
+
+
+def _extract_experience_keys(experience: list) -> dict:
+    """Map experience entries by (title+company) for comparison."""
+    entries = {}
+    for exp in (experience or []):
+        if isinstance(exp, dict):
+            key = f"{(exp.get('title') or '').lower()}@{(exp.get('company') or '').lower()}"
+            entries[key] = exp
+    return entries
+
+
+def _extract_project_keys(projects: list) -> dict:
+    """Map projects by name for comparison."""
+    entries = {}
+    for proj in (projects or []):
+        if isinstance(proj, dict):
+            key = (proj.get("name") or "").lower().strip()
+            if key:
+                entries[key] = proj
+    return entries
+
+
+def compute_resume_diff(old_profile: dict, new_profile: dict) -> dict:
+    """
+    Compute structured diff between two resume profiles.
+    Returns: {skills_added, skills_removed, experience_added, experience_updated, projects_added, summary}
+    """
+    old_skills = _extract_skill_names(old_profile.get("skills"))
+    new_skills = _extract_skill_names(new_profile.get("skills"))
+    
+    old_exp = _extract_experience_keys(old_profile.get("experience"))
+    new_exp = _extract_experience_keys(new_profile.get("experience"))
+    
+    old_proj = _extract_project_keys(old_profile.get("projects"))
+    new_proj = _extract_project_keys(new_profile.get("projects"))
+    
+    skills_added = list(new_skills - old_skills)
+    skills_removed = list(old_skills - new_skills)
+    
+    exp_added = [new_exp[k] for k in (set(new_exp.keys()) - set(old_exp.keys()))]
+    exp_updated = []
+    for k in set(old_exp.keys()) & set(new_exp.keys()):
+        old_months = old_exp[k].get("duration_months", 0) or 0
+        new_months = new_exp[k].get("duration_months", 0) or 0
+        if new_months != old_months:
+            exp_updated.append({
+                "title": new_exp[k].get("title"),
+                "company": new_exp[k].get("company"),
+                "duration_change": new_months - old_months,
+            })
+    
+    projects_added = [new_proj[k] for k in (set(new_proj.keys()) - set(old_proj.keys()))]
+    
+    # Generate summary
+    changes = []
+    if skills_added:
+        changes.append(f"+{len(skills_added)} skills ({', '.join(skills_added[:3])}{'...' if len(skills_added) > 3 else ''})")
+    if skills_removed:
+        changes.append(f"-{len(skills_removed)} skills")
+    if exp_added:
+        changes.append(f"+{len(exp_added)} experience entries")
+    if exp_updated:
+        changes.append(f"{len(exp_updated)} experience updates")
+    if projects_added:
+        changes.append(f"+{len(projects_added)} projects")
+    
+    return {
+        "skills_added": skills_added,
+        "skills_removed": skills_removed,
+        "experience_added": exp_added,
+        "experience_updated": exp_updated,
+        "projects_added": projects_added,
+        "has_changes": bool(skills_added or skills_removed or exp_added or exp_updated or projects_added),
+        "summary": "; ".join(changes) if changes else "No significant changes detected",
+    }
+
+
+def _get_user_matched_jobs(user_id: str, limit: int = 5) -> list:
+    """Fetch recent jobs this user has matched against."""
+    col = cache_collection()
+    if col is None:
+        return []
+    try:
+        # Look for cached match results for this user
+        cursor = col.find(
+            {"_id": {"$regex": f"^match:.*{user_id}"}},
+            sort=[("created_at", -1)],
+            limit=limit
+        )
+        # This is a simplified approach — in production you'd have a dedicated user_matches collection
+        return list(cursor)
+    except Exception:
+        return []
+
+
+async def _run_match_async(inputs: dict) -> dict:
+    """Run match graph asynchronously (wraps sync invoke)."""
+    import asyncio
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, lambda: match_app.invoke(inputs))
 
 
 # ---------------------------------------------------------------------------
@@ -1373,6 +2045,8 @@ app.add_middleware(
 
 class AnalyzeRequest(BaseModel):
     resume_text: str
+    user_id: Optional[str] = None  # P1.3: for version history
+    previous_profile: Optional[dict] = None  # P1.3: include diff if provided
 
 
 class MatchRequest(BaseModel):
@@ -1397,13 +2071,43 @@ class ChatRequest(BaseModel):
     history: list = Field(default_factory=list)
 
 
+# ---------------------------------------------------------------------------
+# P1.3 Resume Version Diffing
+# ---------------------------------------------------------------------------
+class ResumeDiffRequest(BaseModel):
+    user_id: str
+    new_resume_text: str
+    previous_profile: Optional[dict] = None  # If not provided, fetches from DB
+    rematch_jobs: Optional[list] = None  # Optional: job IDs or job data to re-match
+
+
+# P1.4 Batch Matching
+class BatchMatchRequest(BaseModel):
+    candidate_profile: dict
+    jobs: list  # List of job_requirements dicts
+    weights: Optional[dict] = None
+    concurrency: int = 3  # Max parallel matches
+
+
+class BatchMatchCandidatesRequest(BaseModel):
+    job_requirements: dict
+    candidates: list  # List of candidate_profile dicts
+    weights: Optional[dict] = None
+    concurrency: int = 5  # Recruiter shortlist: parallel batches of 5
+
+
+# ponytail: P0.5 health endpoint reports active model
 @app.get("/health")
 def health():
+    llm_status = resilient_llm.get_status()
     return {
         "status": "ok",
         "deepseek": bool(DEEPSEEK_API_KEY),
         "jev": bool(TYPESAFE_API_KEY),
         "mongo": bool(MONGODB_URI),
+        "active_model": llm_status["active_model"],
+        "fallback_activations": llm_status["fallback_activations"],
+        "youtube_keys_available": yt_key_rotator.has_keys(),
     }
 
 
@@ -1446,6 +2150,7 @@ def match(req: MatchRequest):
         "requirement_scores": result.get("requirement_scores"),
         "semantic_comparison": result.get("semantic_comparison"),
         "confidence": result.get("confidence"),
+        "confidence_intervals": result.get("confidence_intervals"),  # P1.6
         "errors": result.get("errors") or [],
     }
 
@@ -1509,6 +2214,138 @@ def chat(req: ChatRequest):
         return {"reply": response.content, "model": "deepseek-chat"}
     except Exception as e:
         raise HTTPException(500, str(e))
+
+
+# ---------------------------------------------------------------------------
+# P0.3 Streaming endpoints — SSE for progressive rendering
+# ---------------------------------------------------------------------------
+
+@app.post("/match/stream")
+async def match_stream(req: MatchRequest):
+    """Streaming match — sends scores/evidence first, then streams explanation."""
+    
+    async def event_generator():
+        try:
+            inputs = {
+                "candidate_profile": req.candidate_profile,
+                "job_requirements": req.job_requirements,
+                "weights": req.weights or {
+                    "skills": 0.35, "experience": 0.25, "education": 0.15, "projects": 0.15, "communication": 0.10,
+                },
+            }
+            
+            # Run graph synchronously (Jev + evidence extraction)
+            result = match_app.invoke(inputs)
+            
+            # Send scores immediately
+            scores_data = {
+                "overall_score": result.get("overall_score"),
+                "component_scores": result.get("component_scores"),
+                "confidence": result.get("confidence"),
+            }
+            yield f"data: {json.dumps({'type': 'scores', 'data': scores_data})}\n\n"
+            
+            # Send evidence
+            evidence_data = result.get("evidence") or []
+            yield f"data: {json.dumps({'type': 'evidence', 'data': evidence_data})}\n\n"
+            
+            # Send explanation (already generated by graph)
+            explanation = result.get("explanation") or ""
+            # Stream explanation in chunks for progressive rendering
+            chunk_size = 50
+            for i in range(0, len(explanation), chunk_size):
+                chunk = explanation[i:i+chunk_size]
+                yield f"data: {json.dumps({'type': 'explanation_chunk', 'data': chunk})}\n\n"
+            
+            # Send complete signal
+            yield f"data: {json.dumps({'type': 'complete', 'data': result})}\n\n"
+            
+        except Exception as e:
+            logger.error(f"Match stream error: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'data': str(e)})}\n\n"
+    
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+@app.post("/career-plan/stream")
+async def career_plan_stream(req: CareerRequest):
+    """Streaming career plan — sends objectives first, then modules progressively."""
+    
+    async def event_generator():
+        try:
+            if not yt_key_rotator.has_keys():
+                yield f"data: {json.dumps({'type': 'error', 'data': 'No YouTube API keys available'})}\n\n"
+                return
+            
+            inputs = {"gaps": req.gaps, "target_role": req.target_role}
+            
+            # Run graph synchronously
+            result = career_app.invoke(inputs)
+            
+            # Send objectives
+            objectives = result.get("objectives") or []
+            yield f"data: {json.dumps({'type': 'objectives', 'data': objectives})}\n\n"
+            
+            # Send study plan
+            study_plan = result.get("study_plan") or {}
+            yield f"data: {json.dumps({'type': 'study_plan', 'data': study_plan})}\n\n"
+            
+            # Send projects
+            projects = result.get("projects") or []
+            yield f"data: {json.dumps({'type': 'projects', 'data': projects})}\n\n"
+            
+            # Stream modules one at a time
+            modules = result.get("modules") or []
+            for module in modules:
+                yield f"data: {json.dumps({'type': 'module', 'data': module})}\n\n"
+            
+            # Send complete
+            yield f"data: {json.dumps({'type': 'complete', 'data': result})}\n\n"
+            
+        except Exception as e:
+            logger.error(f"Career plan stream error: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'data': str(e)})}\n\n"
+    
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+@app.post("/chat/stream")
+async def chat_stream(req: ChatRequest):
+    """Streaming chat — sends tokens as they arrive."""
+    
+    async def event_generator():
+        try:
+            context_parts = []
+            if req.resume_text:
+                context_parts.append(f"RESUME:\n{clean_resume_text(req.resume_text)[:6000]}")
+            if req.job_description:
+                context_parts.append(f"JOB:\n{extract_requirements_section(req.job_description)[:4000]}")
+            context = "\n\n".join(context_parts) or "No documents provided."
+            
+            messages = [
+                {"role": "system", "content": (
+                    "You are X-CEED career assistant. Answer using the provided resume/job context. "
+                    "Be concise and actionable. If context is missing, say so."
+                )},
+                *[{"role": m.get("role", "user"), "content": m.get("content", "")} for m in (req.history or [])[-8:]],
+                {"role": "user", "content": f"{context}\n\nQuestion: {req.message}"},
+            ]
+            
+            # Stream tokens via resilient_llm
+            full_content = ""
+            async for chunk in resilient_llm.astream(messages):
+                content = chunk.content if hasattr(chunk, 'content') else str(chunk)
+                if content:
+                    full_content += content
+                    yield f"data: {json.dumps({'type': 'token', 'data': content})}\n\n"
+            
+            yield f"data: {json.dumps({'type': 'complete', 'data': {'reply': full_content}})}\n\n"
+            
+        except Exception as e:
+            logger.error(f"Chat stream error: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'data': str(e)})}\n\n"
+    
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
 if __name__ == "__main__":
