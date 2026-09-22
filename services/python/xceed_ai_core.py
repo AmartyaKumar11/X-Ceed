@@ -10,6 +10,7 @@ import os
 import re
 from datetime import datetime, timedelta
 from typing import Any, Optional, TypedDict
+from urllib.parse import quote_plus
 
 import httpx
 from dotenv import load_dotenv
@@ -281,12 +282,22 @@ Valid JSON only."""
 EVIDENCE_SYSTEM = """You are X-CEED's evidence extractor.
 Given candidate profile and job requirements, return JSON:
 {evidence: [{requirement: string, resume_excerpt: string, strength: "weak"|"moderate"|"strong"}]}.
+
+Rules:
+- resume_excerpt MUST be a verbatim or near-verbatim quote from the resume/profile evidence fields — never invent quotes.
+- If the candidate has NO evidence for a requirement, OMIT that requirement from the evidence array entirely (do not write "No mention of X").
+- strength reflects how strongly the quote supports the requirement.
 Valid JSON only."""
 
 EXPLANATION_SYSTEM = """You are X-CEED's match explainer.
-Write a clear recruiter-facing explanation of fit.
+Write a clear, honest recruiter-facing explanation of fit.
 Return JSON: {explanation: string, summary: string}.
-Valid JSON only."""
+
+Rules:
+- Cite specific resume facts (companies, projects, years, technologies).
+- If overall_score is below 35 OR most requirements are misaligned, state clearly that this is a poor fit / does not align — do NOT invent "transferable skills" spin for unrelated domains (e.g. mechanical engineering for a software role).
+- Name concrete gaps and what would need to change for a better match.
+- Valid JSON only. No markdown fences."""
 
 OBJECTIVES_SYSTEM = """You are X-CEED's career coach.
 From skill gaps, create learning objectives.
@@ -344,7 +355,154 @@ def _normalize_gap_class(raw: str) -> str:
     return "missing"
 
 
-def _yt_search(query: str, max_results: int = 5) -> list:
+class YouTubeQuotaExhausted(Exception):
+    """YouTube Data API search.list quota / rate limit (HTTP 429)."""
+
+
+# Related skill families → one search covers the group (quota saver)
+_YT_SKILL_FAMILIES: list[dict] = [
+    {"keys": ("node", "nodejs", "express", "nestjs", "fastify"), "label": "Node.js Express", "query": "Node.js Express tutorial"},
+    {"keys": ("react", "next", "nextjs", "hooks", "jsx"), "label": "React Next.js", "query": "React Next.js tutorial"},
+    {"keys": ("typescript", "javascript"), "label": "TypeScript JavaScript", "query": "TypeScript JavaScript tutorial"},
+    {"keys": ("aws", "s3", "cloudfront", "lambda", "cloud"), "label": "AWS", "query": "AWS S3 CloudFront Lambda tutorial"},
+    {"keys": ("docker", "kubernetes", "k8s", "container"), "label": "Docker", "query": "Docker tutorial for beginners"},
+    {"keys": ("git", "github", "gitlab", "ci/cd", "cicd"), "label": "Git", "query": "Git GitHub tutorial for beginners"},
+    {"keys": ("graphql", "apollo"), "label": "GraphQL", "query": "GraphQL Apollo tutorial"},
+    {"keys": ("mongodb", "mongo", "mongoose"), "label": "MongoDB", "query": "MongoDB tutorial for beginners"},
+    {"keys": ("python", "django", "flask", "fastapi"), "label": "Python", "query": "Python backend tutorial"},
+    {"keys": ("sql", "postgres", "mysql", "database"), "label": "SQL", "query": "SQL database tutorial"},
+]
+
+_YT_FALLBACK_CHANNELS = (
+    "freeCodeCamp.org",
+    "Fireship",
+    "Traversy Media",
+    "The Net Ninja",
+    "Web Dev Simplified",
+)
+
+# Evergreen watch URLs used when search quota is exhausted (better than empty modules)
+_YT_FALLBACK_BY_FAMILY: dict[str, list[dict]] = {
+    "React Next.js": [
+        {"title": "React Course for Beginners – freeCodeCamp", "url": "https://www.youtube.com/watch?v=bMknfKXIFA8", "video_id": "bMknfKXIFA8", "channel": "freeCodeCamp.org"},
+        {"title": "Next.js Tutorial for Beginners – The Net Ninja", "url": "https://www.youtube.com/watch?v=A63UxsQsEbU", "video_id": "A63UxsQsEbU", "channel": "The Net Ninja"},
+        {"title": "React in 100 Seconds – Fireship", "url": "https://www.youtube.com/watch?v=Tn6-PIqc4UM", "video_id": "Tn6-PIqc4UM", "channel": "Fireship"},
+    ],
+    "Node.js Express": [
+        {"title": "Node.js and Express.js – full course", "url": "https://www.youtube.com/watch?v=Oe421EPjeBE", "video_id": "Oe421EPjeBE", "channel": "freeCodeCamp.org"},
+        {"title": "Node.js Crash Course – Traversy Media", "url": "https://www.youtube.com/watch?v=fBNz5xF-Kx4", "video_id": "fBNz5xF-Kx4", "channel": "Traversy Media"},
+    ],
+    "TypeScript JavaScript": [
+        {"title": "TypeScript Course for Beginners – freeCodeCamp", "url": "https://www.youtube.com/watch?v=BwuLxPH8IDs", "video_id": "BwuLxPH8IDs", "channel": "freeCodeCamp.org"},
+        {"title": "TypeScript – The Net Ninja", "url": "https://www.youtube.com/watch?v=2pZmKW9-I_k", "video_id": "2pZmKW9-I_k", "channel": "The Net Ninja"},
+    ],
+    "AWS": [
+        {"title": "AWS Certified Cloud Practitioner – freeCodeCamp", "url": "https://www.youtube.com/watch?v=SOTamWNgDKc", "video_id": "SOTamWNgDKc", "channel": "freeCodeCamp.org"},
+    ],
+    "Docker": [
+        {"title": "Docker Tutorial for Beginners – freeCodeCamp", "url": "https://www.youtube.com/watch?v=fqMOX6JJhGo", "video_id": "fqMOX6JJhGo", "channel": "freeCodeCamp.org"},
+        {"title": "Docker in 100 Seconds – Fireship", "url": "https://www.youtube.com/watch?v=Gjnup-PuquQ", "video_id": "Gjnup-PuquQ", "channel": "Fireship"},
+    ],
+    "Git": [
+        {"title": "Git and GitHub for Beginners – freeCodeCamp", "url": "https://www.youtube.com/watch?v=RGOj5yH7evk", "video_id": "RGOj5yH7evk", "channel": "freeCodeCamp.org"},
+        {"title": "Git Tutorial for Beginners – Traversy Media", "url": "https://www.youtube.com/watch?v=SWYqp7iY_Tc", "video_id": "SWYqp7iY_Tc", "channel": "Traversy Media"},
+    ],
+    "GraphQL": [
+        {"title": "GraphQL Full Course – freeCodeCamp", "url": "https://www.youtube.com/watch?v=ed8SzALpx1w", "video_id": "ed8SzALpx1w", "channel": "freeCodeCamp.org"},
+    ],
+    "MongoDB": [
+        {"title": "MongoDB Crash Course – Traversy Media", "url": "https://www.youtube.com/watch?v=-56x56UppqQ", "video_id": "-56x56UppqQ", "channel": "Traversy Media"},
+    ],
+    "Python": [
+        {"title": "Python for Beginners – freeCodeCamp", "url": "https://www.youtube.com/watch?v=rfscVS0vtbw", "video_id": "rfscVS0vtbw", "channel": "freeCodeCamp.org"},
+    ],
+    "SQL": [
+        {"title": "SQL Tutorial – freeCodeCamp", "url": "https://www.youtube.com/watch?v=HXV3zeQKqGY", "video_id": "HXV3zeQKqGY", "channel": "freeCodeCamp.org"},
+    ],
+}
+
+
+def _yt_family_for(skill: str) -> dict:
+    s = (skill or "").lower()
+    for fam in _YT_SKILL_FAMILIES:
+        if any(k in s for k in fam["keys"]):
+            return fam
+    return {"keys": (), "label": skill or "General", "query": f"{skill} tutorial for beginners"}
+
+
+def _yt_cache_id(skill: str, difficulty: str) -> str:
+    # CURSOR_BIBLE: yt:{hash(skill + difficulty)}
+    payload = f"{(skill or '').strip().lower()}|{(difficulty or 'missing').strip().lower()}"
+    return "yt:" + hashlib.sha256(payload.encode()).hexdigest()
+
+
+def _yt_cache_get(skill: str, difficulty: str) -> list | None:
+    col = cache_collection()
+    if col is None:
+        return None
+    try:
+        doc = col.find_one({"_id": _yt_cache_id(skill, difficulty)})
+        if doc and doc.get("expires_at", datetime.min) > datetime.utcnow():
+            return doc.get("result") or []
+    except Exception as e:
+        print(f"yt cache read warn: {e}")
+    return None
+
+
+def _yt_cache_set(skill: str, difficulty: str, videos: list) -> None:
+    col = cache_collection()
+    if col is None:
+        return
+    try:
+        col.update_one(
+            {"_id": _yt_cache_id(skill, difficulty)},
+            {
+                "$set": {
+                    "result": videos,
+                    "skill": skill,
+                    "difficulty": difficulty,
+                    "created_at": datetime.utcnow(),
+                    "expires_at": datetime.utcnow() + CACHE_TTL,
+                }
+            },
+            upsert=True,
+        )
+    except Exception as e:
+        print(f"yt cache write warn: {e}")
+
+
+def _yt_fallback_videos(skill: str, level: str) -> list:
+    """Static curated list when YouTube search quota is exhausted (HTTP 429)."""
+    fam = _yt_family_for(skill)
+    base = list(_YT_FALLBACK_BY_FAMILY.get(fam["label"]) or [])
+    out = []
+    for v in base:
+        out.append({
+            **v,
+            "query": f"fallback:{fam['label']}",
+            "skill": skill,
+            "level": level,
+            "fallback": True,
+        })
+    # Always append channel discovery links so UI isn't empty for obscure skills
+    for ch in _YT_FALLBACK_CHANNELS:
+        q = quote_plus(f"{skill} {ch}")
+        out.append({
+            "title": f"{skill} tutorials — {ch}",
+            "url": f"https://www.youtube.com/results?search_query={q}",
+            "video_id": None,
+            "channel": ch,
+            "query": f"fallback-channel:{ch}",
+            "skill": skill,
+            "level": level,
+            "fallback": True,
+        })
+    print(f"WARNING: YouTube quota fallback used for skill={skill!r} level={level!r} ({len(out)} curated items)")
+    return out
+
+
+def _yt_search(query: str, max_results: int = 10) -> list:
+    """YouTube search.list — costs 100 quota units regardless of maxResults. Default 10."""
     if not YOUTUBE_API_KEY:
         raise RuntimeError("YOUTUBE_API_KEY not configured")
     r = httpx.get(
@@ -353,11 +511,13 @@ def _yt_search(query: str, max_results: int = 5) -> list:
             "part": "snippet",
             "q": query,
             "type": "video",
-            "maxResults": max_results,
+            "maxResults": min(max(1, max_results), 10),
             "key": YOUTUBE_API_KEY,
         },
         timeout=25.0,
     )
+    if r.status_code == 429:
+        raise YouTubeQuotaExhausted(r.text[:300])
     r.raise_for_status()
     out = []
     for it in r.json().get("items", []):
@@ -374,6 +534,44 @@ def _yt_search(query: str, max_results: int = 5) -> list:
             "query": query,
         })
     return out
+
+
+def _group_gaps_for_yt(gaps: list) -> list[dict]:
+    """
+    Batch related gaps into one YouTube search.
+    Returns [{family, query, gaps: [{skill, level, priority, raw}]}]
+    """
+    buckets: dict[str, dict] = {}
+    for gap in gaps:
+        if not isinstance(gap, dict):
+            gap = {"requirement": str(gap), "classification": "missing", "priority": "medium"}
+        skill = (gap.get("requirement") or gap.get("skill") or "").strip()
+        if not skill:
+            continue
+        level = _normalize_gap_class(gap.get("classification") or gap.get("priority") or "")
+        fam = _yt_family_for(skill)
+        # One bucket per family + difficulty so cache keys stay coherent
+        key = f"{fam['label']}|{level}"
+        if key not in buckets:
+            # Adapt query slightly by difficulty
+            q = fam["query"]
+            if level == "weak":
+                q = f"{fam['label']} advanced tutorial best practices"
+            elif level == "under-evidenced":
+                q = f"{fam['label']} project tutorial portfolio"
+            buckets[key] = {
+                "family": fam["label"],
+                "query": q,
+                "level": level,
+                "gaps": [],
+            }
+        buckets[key]["gaps"].append({
+            "skill": skill,
+            "level": level,
+            "priority": gap.get("priority") or "medium",
+            "raw": gap,
+        })
+    return list(buckets.values())
 
 
 # ---------------------------------------------------------------------------
@@ -562,25 +760,143 @@ def compute_weighted_score(state: MatchState) -> dict:
     }
     req_scores = state.get("requirement_scores") or {}
     if req_scores:
-        vals = [v.get("fit_score", 0.5) for v in req_scores.values()]
+        vals = [float(v.get("fit_score", 0.0) or 0.0) for v in req_scores.values()]
         skills_score = sum(vals) / max(len(vals), 1)
+        # Fraction of requirements meeting a real bar — used to damp domain mismatches
+        strong_frac = sum(1 for v in vals if v >= 0.55) / max(len(vals), 1)
+        weak_frac = sum(1 for v in vals if v < 0.25) / max(len(vals), 1)
     else:
-        skills_score = 0.5
-    # ponytail: other components derived lightly from profile richness until separate Jev dims exist
+        skills_score = 0.0
+        strong_frac = 0.0
+        weak_frac = 1.0
+
     profile = state.get("candidate_profile") or {}
-    exp_score = min(1.0, 0.3 + 0.1 * len(profile.get("experience") or []))
-    edu_score = 0.7 if profile.get("education") else 0.4
-    proj_score = min(1.0, 0.3 + 0.15 * len(profile.get("projects") or []))
+    job = state.get("job_requirements") or {}
+    job_blob = " ".join(
+        [
+            str(job.get("title") or ""),
+            str(job.get("description") or ""),
+            " ".join(str(r) for r in (job.get("requirements") or [])),
+        ]
+    ).lower()
+    soft_job = bool(
+        re.search(r"software|engineer|developer|frontend|backend|full.?stack|react|node|python|typescript", job_blob)
+    )
+
+    # Experience: seniority + role relevance (not just number of bullets)
+    exps = profile.get("experience") or []
+    exp_text = " ".join(
+        f"{e.get('title','')} {e.get('company','')} {e.get('description','')} {' '.join(e.get('technologies') or [])}"
+        for e in exps
+        if isinstance(e, dict)
+    ).lower()
+    months = 0
+    for e in exps:
+        if isinstance(e, dict):
+            try:
+                months += int(e.get("duration_months") or 0)
+            except Exception:
+                pass
+    if months <= 0:
+        # infer from free text years if analyze captured them poorly
+        years_hit = re.findall(r"(\d+)\+?\s*years?", exp_text + " " + str(profile.get("summary") or "").lower())
+        if years_hit:
+            months = max(int(y) for y in years_hit) * 12
+        else:
+            months = max(12, len(exps) * 18)
+    seniority = min(1.0, months / (72.0))  # 6 years ≈ full
+    tech_hits = sum(
+        1
+        for kw in ("react", "typescript", "javascript", "node", "graphql", "next", "aws", "docker", "python", "api")
+        if kw in exp_text
+    )
+    domain_hits = sum(
+        1 for kw in ("mechanical", "autocad", "solidworks", "catia", "matlab", "automotive", "manufactur") if kw in exp_text
+    )
+    if soft_job and domain_hits >= 2 and tech_hits == 0:
+        exp_relev = 0.05
+    elif soft_job:
+        exp_relev = min(1.0, 0.15 + 0.12 * tech_hits)
+    else:
+        exp_relev = 0.5
+    exp_score = round(0.55 * seniority + 0.45 * exp_relev, 3)
+    if soft_job and tech_hits == 0:
+        exp_score = min(exp_score, 0.15)
+
+    # Education: degree present × field relevance to job
+    edus = profile.get("education") or []
+    edu_text = " ".join(
+        f"{e.get('degree','')} {e.get('field','')} {e.get('institution','')}" for e in edus if isinstance(e, dict)
+    ).lower()
+    if not edus:
+        edu_score = 0.25
+    elif soft_job and re.search(r"computer|software|information technology|\bit\b|cs\b", edu_text):
+        edu_score = 0.85
+    elif soft_job and re.search(r"mechanical|civil|chemical|electrical|automobile", edu_text):
+        edu_score = 0.2
+    elif edus:
+        edu_score = 0.55
+    else:
+        edu_score = 0.4
+
+    # Projects: count × tech overlap with job requirements
+    projs = profile.get("projects") or []
+    proj_text = " ".join(
+        f"{p.get('name','')} {p.get('description','')} {' '.join(p.get('technologies') or [])}"
+        for p in projs
+        if isinstance(p, dict)
+    ).lower()
+    req_names = [str(r).lower() for r in (job.get("requirements") or [])]
+    if not req_names and job.get("_normalized"):
+        req_names = [str(r.get("name") or "").lower() for r in job["_normalized"]]
+    overlap = sum(1 for r in req_names if r and r in proj_text)
+    if soft_job and re.search(r"solidworks|autocad|fuel injection|emissions", proj_text) and overlap == 0:
+        proj_score = 0.1
+    else:
+        proj_score = min(1.0, 0.2 + 0.15 * len(projs) + 0.1 * overlap)
+
     comm = profile.get("communication_profile") or {}
-    comm_score = (comm.get("writing_quality") or 3) / 5.0
+    try:
+        wq = float(comm.get("writing_quality") or 3)
+    except Exception:
+        wq = 3.0
+    # Don't let communication prop up a total domain mismatch
+    comm_score = wq / 5.0
+    if soft_job and weak_frac >= 0.7:
+        comm_score = min(comm_score, 0.35)
+
+    # Domain-mismatch clamp: almost no requirements fit AND no software signal in profile
+    profile_blob = (
+        json.dumps(profile.get("skills") or [])
+        + " "
+        + " ".join(
+            f"{e.get('title','')} {e.get('description','')}" for e in exps if isinstance(e, dict)
+        )
+        + " "
+        + proj_text
+    ).lower()
+    soft_signal = bool(
+        re.search(r"\b(react|javascript|typescript|node|python|next\.?js|html|css|jquery)\b", profile_blob)
+    )
+    if soft_job and weak_frac >= 0.75 and strong_frac < 0.15 and not soft_signal:
+        skills_score = min(skills_score, 0.12)
+        exp_score = min(exp_score, 0.12)
+        proj_score = min(proj_score, 0.12)
+
     component = {
-        "skills": round(skills_score, 3),
-        "experience": round(exp_score, 3),
-        "education": round(edu_score, 3),
-        "projects": round(proj_score, 3),
-        "communication": round(comm_score, 3),
+        "skills": round(float(skills_score), 3),
+        "experience": round(float(exp_score), 3),
+        "education": round(float(edu_score), 3),
+        "projects": round(float(proj_score), 3),
+        "communication": round(float(comm_score), 3),
     }
     overall = sum(component[k] * float(weights.get(k, 0)) for k in component)
+    # Extra penalty only for true domain mismatches (no software signal)
+    if soft_job and weak_frac >= 0.75 and not soft_signal:
+        overall = min(overall, 0.28)
+    elif soft_job and soft_signal and skills_score < 0.35:
+        # Partial software candidate: keep a junior/partial band (~25–45 typical)
+        overall = max(overall, min(0.42, 0.18 + skills_score + 0.05 * tech_hits))
     confs = [v.get("confidence") for v in req_scores.values() if isinstance(v, dict) and v.get("confidence") is not None]
     confidence = sum(confs) / len(confs) if confs else 0.6
     return {
@@ -601,7 +917,22 @@ def extract_evidence(state: MatchState) -> dict:
             }, default=str)[:12000]},
         ])
         data = _parse_json_content(response.content)
-        return {"evidence": data.get("evidence") or []}
+        raw = data.get("evidence") or []
+        cleaned = []
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            excerpt = str(item.get("resume_excerpt") or item.get("excerpt") or "").strip()
+            if not excerpt:
+                continue
+            if re.search(
+                r"^\s*no (explicit )?(git )?evidence|no (explicit )?mention|not (found|mentioned|present)|n/?a\b|implies .+ usage",
+                excerpt,
+                re.I,
+            ):
+                continue
+            cleaned.append(item)
+        return {"evidence": cleaned}
     except Exception as e:
         return {"evidence": [], "errors": (state.get("errors") or []) + [str(e)]}
 
@@ -739,45 +1070,82 @@ def suggest_projects(state: CareerState) -> dict:
 
 
 def search_youtube_resources(state: CareerState) -> dict:
-    """Per-gap YouTube search with classification-specific queries. No mocks."""
+    """
+    Per-gap YouTube search with:
+    - Mongo yt:{hash(skill+difficulty)} cache (24h)
+    - Batched searches for related skills (1 API call per family, not per gap×template)
+    - maxResults=10
+    - Curated channel/video fallback on HTTP 429
+    """
     if not YOUTUBE_API_KEY:
         return {"gap_videos": [], "errors": (state.get("errors") or []) + ["YOUTUBE_API_KEY not configured"]}
 
     gaps = state.get("gaps") or []
     if not gaps:
-        # synthesize a gap from target role so we still search something real
         gaps = [{"requirement": state.get("target_role") or "software engineering", "classification": "missing", "priority": "high"}]
 
-    gap_videos = []
     errors = list(state.get("errors") or [])
-    seen_ids = set()
+    groups = _group_gaps_for_yt(gaps)
+    gap_videos = []
+    quota_dead = False
 
-    for gap in gaps:
-        if not isinstance(gap, dict):
-            gap = {"requirement": str(gap), "classification": "missing", "priority": "medium"}
-        skill = (gap.get("requirement") or gap.get("skill") or "").strip()
-        if not skill:
-            continue
-        level = _normalize_gap_class(gap.get("classification") or gap.get("priority") or "")
-        templates = GAP_QUERY_TEMPLATES.get(level, GAP_QUERY_TEMPLATES["missing"])
-        collected = []
-        for tmpl in templates:
-            q = tmpl.format(skill=skill)
+    for group in groups:
+        level = group["level"]
+        query = group["query"]
+        members = group["gaps"]
+
+        # 1) Prefer per-skill cache — if every member is warm, skip YouTube entirely
+        cached_by_skill: dict[str, list] = {}
+        need_fetch = []
+        for m in members:
+            cached = _yt_cache_get(m["skill"], m["level"])
+            if cached is not None:
+                cached_by_skill[m["skill"]] = cached
+            else:
+                need_fetch.append(m)
+
+        shared: list = []
+        used_fallback = False
+        if need_fetch and not quota_dead:
             try:
-                for v in _yt_search(q, max_results=4):
-                    if v["video_id"] in seen_ids:
-                        continue
-                    seen_ids.add(v["video_id"])
-                    collected.append({**v, "skill": skill, "level": level})
+                # 2) One batched search for the related group (not N template searches)
+                shared = _yt_search(query, max_results=10)
+                for m in need_fetch:
+                    tagged = [{**v, "skill": m["skill"], "level": m["level"]} for v in shared]
+                    _yt_cache_set(m["skill"], m["level"], tagged)
+                    cached_by_skill[m["skill"]] = tagged
+            except YouTubeQuotaExhausted as e:
+                quota_dead = True
+                msg = f"YouTube quota exhausted (429) on '{query}': {e}"
+                print(f"WARNING: {msg}")
+                errors.append(msg)
+                used_fallback = True
             except Exception as e:
-                errors.append(f"YouTube search failed for '{q}': {e}")
-        gap_videos.append({
-            "requirement": skill,
-            "classification": level,
-            "priority": gap.get("priority") or "medium",
-            "videos": collected,
-            "queries": [t.format(skill=skill) for t in templates],
-        })
+                errors.append(f"YouTube search failed for '{query}': {e}")
+                used_fallback = True
+
+        if need_fetch and (quota_dead or used_fallback or not shared):
+            # 3) Fallback curated list when quota exhausted / search failed
+            for m in need_fetch:
+                if m["skill"] in cached_by_skill:
+                    continue
+                fb = _yt_fallback_videos(m["skill"], m["level"])
+                # Cache fallback briefly so we don't keep retrying dead quota in-process
+                _yt_cache_set(m["skill"], m["level"], fb)
+                cached_by_skill[m["skill"]] = fb
+
+        need_skills = {m["skill"] for m in need_fetch}
+        for m in members:
+            vids = cached_by_skill.get(m["skill"]) or _yt_fallback_videos(m["skill"], m["level"])
+            gap_videos.append({
+                "requirement": m["skill"],
+                "classification": m["level"],
+                "priority": m["priority"],
+                "videos": vids,
+                "queries": [query],
+                "batched_family": group["family"],
+                "from_cache": m["skill"] not in need_skills,
+            })
 
     return {"gap_videos": gap_videos, "youtube_raw": [], "errors": errors}
 
@@ -1069,7 +1437,7 @@ def match(req: MatchRequest):
             "skills": 0.35, "experience": 0.25, "education": 0.15, "projects": 0.15, "communication": 0.10,
         },
     }
-    result = cached_invoke(match_app, inputs, "match")
+    result = cached_invoke(match_app, inputs, "match:v3")
     return {
         "overall_score": result.get("overall_score"),
         "component_scores": result.get("component_scores"),
