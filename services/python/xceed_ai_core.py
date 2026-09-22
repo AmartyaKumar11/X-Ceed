@@ -2113,7 +2113,15 @@ def health():
 
 @app.get("/")
 def root():
-    return {"service": "xceed-ai-core", "endpoints": ["/analyze", "/match", "/gap", "/career-plan", "/chat", "/health"]}
+    return {
+        "service": "xceed-ai-core",
+        "endpoints": [
+            "/analyze", "/match", "/gap", "/career-plan", "/chat", "/health",
+            "/resume/diff", "/resume/history/{user_id}",
+            "/match/batch", "/match/batch/candidates", "/match/batch/stream",
+            "/match/stream", "/career-plan/stream", "/chat/stream",
+        ],
+    }
 
 
 @app.post("/analyze")
@@ -2121,15 +2129,38 @@ def analyze(req: AnalyzeRequest):
     if not req.resume_text.strip():
         raise HTTPException(400, "resume_text required")
     result = cached_invoke(resume_app, {"raw_text": req.resume_text}, "resume")
-    return {
+    
+    new_profile = {
         "skills": result.get("skills") or [],
         "experience": result.get("experience") or [],
         "education": result.get("education") or [],
         "projects": result.get("projects") or [],
         "communication_profile": result.get("communication_profile") or {},
         "skill_levels": result.get("skill_levels") or {},
+        "raw_text": req.resume_text,
+    }
+    
+    response = {
+        "skills": new_profile["skills"],
+        "experience": new_profile["experience"],
+        "education": new_profile["education"],
+        "projects": new_profile["projects"],
+        "communication_profile": new_profile["communication_profile"],
+        "skill_levels": new_profile["skill_levels"],
         "errors": result.get("errors") or [],
     }
+    
+    # P1.3: Include diff when user_id or previous_profile is provided
+    diff = None
+    if req.user_id or req.previous_profile:
+        old_profile = req.previous_profile or (_get_previous_profile(req.user_id) if req.user_id else None)
+        if old_profile:
+            diff = compute_resume_diff(old_profile, new_profile)
+            response["diff"] = diff
+        if req.user_id:
+            _save_resume_version(req.user_id, new_profile, diff)
+    
+    return response
 
 
 @app.post("/match")
@@ -2214,6 +2245,177 @@ def chat(req: ChatRequest):
         return {"reply": response.content, "model": "deepseek-chat"}
     except Exception as e:
         raise HTTPException(500, str(e))
+
+
+# ---------------------------------------------------------------------------
+# P1.3 Resume Version Diffing — endpoints
+# ---------------------------------------------------------------------------
+@app.post("/resume/diff")
+def resume_diff(req: ResumeDiffRequest):
+    """Compute structured diff between new resume and previous version."""
+    if not req.new_resume_text.strip():
+        raise HTTPException(400, "new_resume_text required")
+    
+    new_result = resume_app.invoke({"raw_text": req.new_resume_text})
+    new_profile = {
+        "skills": new_result.get("skills") or [],
+        "experience": new_result.get("experience") or [],
+        "education": new_result.get("education") or [],
+        "projects": new_result.get("projects") or [],
+        "communication_profile": new_result.get("communication_profile") or {},
+        "skill_levels": new_result.get("skill_levels") or {},
+        "raw_text": req.new_resume_text,
+    }
+    
+    old_profile = req.previous_profile or _get_previous_profile(req.user_id)
+    if not old_profile:
+        _save_resume_version(req.user_id, new_profile, None)
+        return {"diff": None, "message": "First resume version recorded", "new_profile": new_profile, "rematch_results": None}
+    
+    diff = compute_resume_diff(old_profile, new_profile)
+    _save_resume_version(req.user_id, new_profile, diff)
+    
+    rematch_results = None
+    if req.rematch_jobs and diff.get("has_changes"):
+        rematch_results = []
+        weights = {"skills": 0.35, "experience": 0.25, "education": 0.15, "projects": 0.15, "communication": 0.10}
+        for job in req.rematch_jobs[:5]:
+            job_data = job if isinstance(job, dict) else {"requirements": [job]}
+            old_match = match_app.invoke({"candidate_profile": old_profile, "job_requirements": job_data, "weights": weights})
+            new_match = match_app.invoke({"candidate_profile": new_profile, "job_requirements": job_data, "weights": weights})
+            old_score, new_score = old_match.get("overall_score", 0), new_match.get("overall_score", 0)
+            delta = round(new_score - old_score, 1)
+            rematch_results.append({
+                "job_title": job_data.get("title") or "Job",
+                "old_score": old_score, "new_score": new_score, "delta": delta,
+                "message": f"Score {'improved' if delta > 0 else 'decreased' if delta < 0 else 'unchanged'} {old_score} -> {new_score}",
+            })
+    
+    return {"diff": diff, "new_profile": new_profile, "rematch_results": rematch_results, "user_id": req.user_id}
+
+
+@app.get("/resume/history/{user_id}")
+def resume_history(user_id: str, limit: int = 5):
+    """Get resume version history for a user."""
+    col = _resume_versions_collection()
+    if col is None:
+        return {"versions": [], "error": "MongoDB not configured"}
+    try:
+        cursor = col.find({"user_id": user_id}, sort=[("created_at", -1)], limit=limit)
+        versions = [{
+            "created_at": doc.get("created_at").isoformat() if doc.get("created_at") else None,
+            "diff": doc.get("diff_from_previous"),
+            "skills_count": len(doc.get("profile", {}).get("skills", [])),
+        } for doc in cursor]
+        return {"versions": versions, "total": len(versions)}
+    except Exception as e:
+        return {"versions": [], "error": str(e)}
+
+
+# ---------------------------------------------------------------------------
+# P1.4 Batch Matching — endpoints
+# ---------------------------------------------------------------------------
+import asyncio
+
+
+async def _batch_match_worker(candidate_profile: dict, job: dict, weights: dict, job_index: int) -> dict:
+    """Single match worker for batch processing."""
+    try:
+        result = await _run_match_async({"candidate_profile": candidate_profile, "job_requirements": job, "weights": weights})
+        return {"index": job_index, "job_title": job.get("title") or f"Job {job_index+1}",
+                "overall_score": result.get("overall_score"), "component_scores": result.get("component_scores"),
+                "confidence": result.get("confidence"), "explanation": result.get("explanation"),
+                "evidence": result.get("evidence"), "success": True}
+    except Exception as e:
+        return {"index": job_index, "job_title": job.get("title") or f"Job {job_index+1}", "success": False, "error": str(e)}
+
+
+async def _batch_match_candidates_worker(candidate: dict, job_requirements: dict, weights: dict, idx: int) -> dict:
+    """Single match worker for candidate batch processing."""
+    try:
+        result = await _run_match_async({"candidate_profile": candidate, "job_requirements": job_requirements, "weights": weights})
+        return {"index": idx, "candidate_name": candidate.get("name") or f"Candidate {idx+1}",
+                "overall_score": result.get("overall_score"), "component_scores": result.get("component_scores"),
+                "confidence": result.get("confidence"), "explanation": result.get("explanation"),
+                "evidence": result.get("evidence"), "success": True}
+    except Exception as e:
+        return {"index": idx, "candidate_name": candidate.get("name") or f"Candidate {idx+1}", "success": False, "error": str(e)}
+
+
+@app.post("/match/batch")
+async def match_batch(req: BatchMatchRequest):
+    """Match one candidate against multiple jobs with parallel execution."""
+    if not req.jobs:
+        raise HTTPException(400, "jobs list required")
+    weights = req.weights or {"skills": 0.35, "experience": 0.25, "education": 0.15, "projects": 0.15, "communication": 0.10}
+    concurrency = min(max(req.concurrency, 1), 10)
+    semaphore = asyncio.Semaphore(concurrency)
+    
+    async def limited_worker(job: dict, idx: int):
+        async with semaphore:
+            return await _batch_match_worker(req.candidate_profile, job, weights, idx)
+    
+    results = await asyncio.gather(*[limited_worker(job, i) for i, job in enumerate(req.jobs)])
+    successful = sorted([r for r in results if r.get("success")], key=lambda x: x.get("overall_score", 0), reverse=True)
+    return {"results": successful, "failed": [r for r in results if not r.get("success")], "total": len(req.jobs), "completed": len(successful)}
+
+
+@app.post("/match/batch/candidates")
+async def match_batch_candidates(req: BatchMatchCandidatesRequest):
+    """Match multiple candidates against one job (recruiter shortlist)."""
+    if not req.candidates:
+        raise HTTPException(400, "candidates list required")
+    weights = req.weights or {"skills": 0.35, "experience": 0.25, "education": 0.15, "projects": 0.15, "communication": 0.10}
+    concurrency = min(max(req.concurrency, 1), 10)
+    semaphore = asyncio.Semaphore(concurrency)
+    
+    async def limited_worker(candidate: dict, idx: int):
+        async with semaphore:
+            return await _batch_match_candidates_worker(candidate, req.job_requirements, weights, idx)
+    
+    results = await asyncio.gather(*[limited_worker(c, i) for i, c in enumerate(req.candidates)])
+    successful = sorted([r for r in results if r.get("success")], key=lambda x: x.get("overall_score", 0), reverse=True)
+    for rank, r in enumerate(successful, 1):
+        r["rank"] = rank
+    return {"results": successful, "failed": [r for r in results if not r.get("success")],
+            "total": len(req.candidates), "completed": len(successful), "top_candidates": successful[:10]}
+
+
+@app.post("/match/batch/stream")
+async def match_batch_stream(req: BatchMatchRequest):
+    """Streaming batch match — sends results as SSE events as each completes."""
+    if not req.jobs:
+        raise HTTPException(400, "jobs list required")
+    weights = req.weights or {"skills": 0.35, "experience": 0.25, "education": 0.15, "projects": 0.15, "communication": 0.10}
+    concurrency = min(max(req.concurrency, 1), 10)
+    
+    async def event_generator():
+        try:
+            yield f"data: {json.dumps({'type': 'start', 'data': {'total': len(req.jobs), 'concurrency': concurrency}})}\n\n"
+            completed, failed = [], []
+            semaphore = asyncio.Semaphore(concurrency)
+            
+            async def worker(job: dict, idx: int):
+                async with semaphore:
+                    return await _batch_match_worker(req.candidate_profile, job, weights, idx)
+            
+            tasks = [asyncio.create_task(worker(job, i)) for i, job in enumerate(req.jobs)]
+            for coro in asyncio.as_completed(tasks):
+                result = await coro
+                if result.get("success"):
+                    completed.append(result)
+                    yield f"data: {json.dumps({'type': 'result', 'data': result})}\n\n"
+                else:
+                    failed.append(result)
+                    yield f"data: {json.dumps({'type': 'error', 'data': result})}\n\n"
+            
+            completed.sort(key=lambda x: x.get("overall_score", 0), reverse=True)
+            yield f"data: {json.dumps({'type': 'complete', 'data': {'results': completed, 'failed': failed, 'total': len(req.jobs), 'completed': len(completed)}})}\n\n"
+        except Exception as e:
+            logger.error(f"Batch stream error: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'data': str(e)})}\n\n"
+    
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
 # ---------------------------------------------------------------------------
