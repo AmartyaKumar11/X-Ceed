@@ -617,8 +617,8 @@ export default function ProfileSettingsDialog({ isOpen, onClose, userRole = 'app
                             
                             // Validate that we have meaningful education data
                             const validEducation = profileData.education?.filter(edu => 
-                              edu.institution && edu.institution.trim() && 
-                              edu.degree && edu.degree.trim()
+                              edu?.institution?.trim() && 
+                              edu?.degree?.trim()
                             );
                             console.log('Valid education entries:', validEducation?.length || 0);
                             
@@ -827,8 +827,8 @@ export default function ProfileSettingsDialog({ isOpen, onClose, userRole = 'app
                             
                             // Validate that we have meaningful experience data
                             const validExperience = profileData.workExperience?.filter(exp => 
-                              exp.company && exp.company.trim() && 
-                              exp.position && exp.position.trim()
+                              exp?.company?.trim() && 
+                              exp?.position?.trim()
                             );
                             console.log('Valid experience entries:', validExperience?.length || 0);
                             
