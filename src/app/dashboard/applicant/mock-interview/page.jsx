@@ -72,6 +72,7 @@ export default function MockInterviewPage() {
   const [jobDescription, setJobDescription] = useState('');
   const [interviewDuration, setInterviewDuration] = useState(0);
   const [startTime, setStartTime] = useState(null);
+  const [backendStatus, setBackendStatus] = useState('checking');
 
   
   // Sidebar state
@@ -367,7 +368,8 @@ export default function MockInterviewPage() {
       return;
     }
 
-    await startVideo();
+    // Camera is optional for AI question path — don't block if permission hangs
+    startVideo().catch(() => {});
     setIsInterviewActive(true);
     setIsInterviewPaused(false);
     setStartTime(Date.now());

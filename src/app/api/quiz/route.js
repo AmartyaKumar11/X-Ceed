@@ -14,8 +14,9 @@ export async function POST(request) {
     if (action === 'generate_quiz' || action === 'generate') {
       endpoint = '/quiz/generate';
       payload = {
-        topic: data.topic,
-        difficulty: data.difficulty || 'medium',
+        // UI sends video_title; support service requires topic
+        topic: data.topic || data.video_title || data.videoTitle || 'General',
+        difficulty: data.difficulty || data.difficulty_level || 'medium',
         num_questions: data.num_questions || data.question_count || 5,
         question_count: data.question_count || data.num_questions || 5,
         transcript: data.transcript,

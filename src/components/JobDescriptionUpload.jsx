@@ -10,6 +10,7 @@ export default function JobDescriptionUpload({ onJobDescriptionSet }) {
   const [jobDescription, setJobDescription] = useState('');
   const [isUploading, setIsUploading] = useState(false);
   const [uploadedFile, setUploadedFile] = useState(null);
+  const [isSaved, setIsSaved] = useState(false);
   const { toast } = useToast();
 
   const handleFileUpload = async (event) => {
@@ -75,6 +76,7 @@ export default function JobDescriptionUpload({ onJobDescriptionSet }) {
 
       if (extractedText && extractedText.trim()) {
         setJobDescription(extractedText);
+        setIsSaved(true);
         localStorage.setItem('mockInterviewJobDescription', extractedText);
         onJobDescriptionSet(extractedText);
         
@@ -102,6 +104,7 @@ export default function JobDescriptionUpload({ onJobDescriptionSet }) {
     if (jobDescription.trim()) {
       localStorage.setItem('mockInterviewJobDescription', jobDescription);
       onJobDescriptionSet(jobDescription);
+      setIsSaved(true);
       
       toast({
         title: "Job description saved!",
@@ -113,6 +116,7 @@ export default function JobDescriptionUpload({ onJobDescriptionSet }) {
   const clearJobDescription = () => {
     setJobDescription('');
     setUploadedFile(null);
+    setIsSaved(false);
     localStorage.removeItem('mockInterviewJobDescription');
     onJobDescriptionSet('');
     
@@ -131,7 +135,7 @@ export default function JobDescriptionUpload({ onJobDescriptionSet }) {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        {!jobDescription ? (
+        {!isSaved ? (
           <>
             {/* File Upload */}
             <div className="space-y-2">
@@ -175,7 +179,12 @@ export default function JobDescriptionUpload({ onJobDescriptionSet }) {
               </div>
               <textarea
                 value={jobDescription}
-                onChange={(e) => setJobDescription(e.target.value)}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setJobDescription(v);
+                  // keep parent in sync so Start Interview works without a separate Save click
+                  onJobDescriptionSet(v);
+                }}
                 placeholder="Paste or type the job description here...
 
 Example:
